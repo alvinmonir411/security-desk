@@ -19,17 +19,6 @@ export default function Home() {
           <div className="absolute inset-0 bg-gradient-to-r from-blue-900 to-purple-900 opacity-80"></div>
         </div>
 
-        {/* Decorative secondary image */}
-        <div className="absolute right-0 bottom-20 hidden md:block w-1/3 opacity-70">
-          <Image
-            src="/hero_side_image.jpg"
-            alt="Security Illustration"
-            width={400}
-            height={400}
-            className="rounded-full"
-          />
-        </div>
-
         {/* Content */}
         <div className="relative z-10 text-center px-4 max-w-3xl">
           <h1 className="text-5xl md:text-6xl font-extrabold mb-6 drop-shadow-lg">

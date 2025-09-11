@@ -1,13 +1,15 @@
 "use client";
-
 import { useState } from "react";
 import axios from "axios";
+import { useRouter } from "next/navigation";
+import { toast } from "react-toastify";
 
 export default function LoginForm() {
   const [cardId, setCardId] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const router = useRouter();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -15,12 +17,20 @@ export default function LoginForm() {
     setError("");
 
     try {
-      const res = await axios.post("http://localhost:3000/api/login", {
-        cardId,
-        password,
-      });
-      alert(`Welcome ${res.data.name}! Role: ${res.data.role}`);
-      // store JWT or session here and redirect
+      const res = await axios.post(
+        `${process.env.NEXT_PUBLIC_API_URL}api/login`,
+        { cardId, password }
+      );
+
+      if (res.data.user.role === "admin") {
+        localStorage.setItem("user", JSON.stringify(res.data.user));
+        console.log("okay ");
+        router.push("/dashboard/admin");
+      } else {
+        router.push("/dashboard/user");
+        localStorage.setItem("user", JSON.stringify(res.data.user));
+        toast(`Welcome ${res.data.user.name}! Role: ${res.data.user.role}`);
+      }
     } catch (err) {
       setError(err.response?.data?.error || "Login failed");
     } finally {
@@ -35,7 +45,7 @@ export default function LoginForm() {
         className="bg-white p-8 rounded-xl shadow-xl w-full max-w-md"
       >
         <h2 className="text-2xl font-bold text-center mb-6 text-blue-600">
-          welcome to security Desk
+          Welcome to Security Desk
         </h2>
 
         {error && (
@@ -72,7 +82,7 @@ export default function LoginForm() {
 
         <p className="text-sm text-center text-gray-500 mt-4">
           First time?{" "}
-          <a href="/Register" className="text-blue-600">
+          <a href="/register" className="text-blue-600">
             Set your password
           </a>
         </p>
