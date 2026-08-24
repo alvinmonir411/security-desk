@@ -124,7 +124,7 @@ async function main() {
     const fn = firstNames[i % firstNames.length];
     const mn = middleNames[(i * 3) % middleNames.length];
     const ln = lastNames[(i * 7) % lastNames.length];
-    let status = GuardStatus.ACTIVE;
+    let status: GuardStatus = GuardStatus.ACTIVE;
     if (i >= 190 && i < 195) status = GuardStatus.ON_LEAVE;
     else if (i >= 195 && i < 198) status = GuardStatus.ABSENT;
 

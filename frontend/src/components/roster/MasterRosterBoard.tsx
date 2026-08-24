@@ -24,7 +24,6 @@ import { BulkImportModal } from './BulkImportModal';
 export const MasterRosterBoard: React.FC = () => {
   const {
     locations,
-    posts,
     guards,
     assignments,
     currentDate,
@@ -177,11 +176,47 @@ export const MasterRosterBoard: React.FC = () => {
   // Active Filter Mode from KPI Pills: 'ALL' | 'POSTS' | 'ON_DUTY' | 'OFF_DUTY'
   const [pillFilter, setPillFilter] = useState<'ALL' | 'POSTS' | 'ON_DUTY' | 'OFF_DUTY'>('ALL');
   const [isOffDayModalOpen, setIsOffDayModalOpen] = useState(false);
+  const [isAvailableModalOpen, setIsAvailableModalOpen] = useState(false);
+  const [availableSearchQuery, setAvailableSearchQuery] = useState('');
+  const [isOtListModalOpen, setIsOtListModalOpen] = useState(false);
+  const [otFilterTab, setOtFilterTab] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'>('ALL');
+  const [otSearchQuery, setOtSearchQuery] = useState('');
+  const [assigningGuard, setAssigningGuard] = useState<any | null>(null);
+  const [assignPostId, setAssignPostId] = useState('');
+  const [assignShift, setAssignShift] = useState<'DAY' | 'NIGHT'>('DAY');
 
-  // Calculate off-duty / on-leave guards today
+  // Calculate on-duty, weekly off-day, and standby available guards today
   const assignedGuardIdsSet = new Set(assignments.map((a) => a.guardId));
-  const offDutyGuardsList = guards.filter((g) => !assignedGuardIdsSet.has(g.id));
+  const normalAssignments = assignments.filter((a) => !a.isOvertime);
+  const otAssignments = assignments.filter((a) => a.isOvertime);
   const onDutyGuardsList = guards.filter((g) => assignedGuardIdsSet.has(g.id));
+  
+  // Today's Eligible Off-Day Guards (Standby Pool for Emergency OT Deployment)
+  // Under the 6/1 rotation, active guards whose scheduled day is Off-Day (dutyStreak >= 6) and not on leave/absent/inactive
+  const eligibleOffDayGuards = guards.filter(
+    (g) => g.status === 'ACTIVE' && g.dutyStreak >= 6
+  );
+
+  // Available Off-Day guards who are currently unassigned and ready for emergency OT deployment
+  const availableOffDayGuardsForOt = eligibleOffDayGuards.filter(
+    (g) => !assignedGuardIdsSet.has(g.id)
+  );
+
+  // Active regular duty guards (dutyStreak < 6) who are unassigned
+  const regularUnassignedGuards = guards.filter(
+    (g) => g.status === 'ACTIVE' && g.dutyStreak < 6 && !assignedGuardIdsSet.has(g.id)
+  );
+
+  const onLeaveGuards = guards.filter((g) => g.status === 'ON_LEAVE');
+  const absentGuards = guards.filter((g) => g.status === 'ABSENT');
+
+  // For modal backward-compat references
+  const offDutyGuardsList = availableOffDayGuardsForOt;
+  const availableForDutyList = availableOffDayGuardsForOt;
+
+  const pendingOtCount = overtimeRequests.filter((r) => r.status === 'PENDING').length;
+  const approvedOtCount = overtimeRequests.filter((r) => r.status === 'APPROVED').length;
+  const rejectedOtCount = overtimeRequests.filter((r) => r.status === 'REJECTED').length;
 
   // Filter posts based on search query or active pill filter
   const allPostsList: { post: any; location: any }[] = [];
@@ -210,7 +245,6 @@ export const MasterRosterBoard: React.FC = () => {
   });
 
   // Calculate Available Standby Guards for Slot Modal
-  const assignedGuardIdsToday = new Set(assignments.map((a) => a.guardId));
   const availableGuardsList = guards.filter((g) => {
     if (g.status === 'ON_LEAVE' || g.status === 'INACTIVE') return false;
     if (guardSearchInModal.trim()) {
@@ -268,63 +302,123 @@ export const MasterRosterBoard: React.FC = () => {
           </div>
         </div>
 
-        {/* Live Operational Stats Pills (Interactive 1-Click Filters) */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 border-t border-slate-800/80 text-xs">
+        {/* Live Operational Stats Pills (Interactive 1-Click Filters & Modals) */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-3 border-t border-slate-800/80 text-xs">
           {/* Pill 1: Total Workforce */}
           <button
             onClick={() => setPillFilter('ALL')}
-            className={`p-3 rounded-xl border flex items-center justify-between transition cursor-pointer text-left ${
+            className={`p-3 rounded-xl border flex flex-col justify-between transition cursor-pointer text-left ${
               pillFilter === 'ALL'
                 ? 'bg-slate-900 border-sky-500 shadow-md ring-1 ring-sky-500'
                 : 'bg-slate-950 border-slate-850 hover:border-slate-700'
             }`}
           >
-            <span className="text-slate-400 font-semibold flex items-center gap-1.5">
+            <span className="text-slate-400 font-semibold flex items-center gap-1">
               <span>👥 Total Workforce:</span>
             </span>
-            <span className="text-sm font-black text-white">{guards.length} Guards</span>
+            <span className="text-sm font-black text-white mt-1">{guards.length} Guards</span>
           </button>
 
           {/* Pill 2: Duty Posts */}
           <button
             onClick={() => setPillFilter('POSTS')}
-            className={`p-3 rounded-xl border flex items-center justify-between transition cursor-pointer text-left ${
+            className={`p-3 rounded-xl border flex flex-col justify-between transition cursor-pointer text-left ${
               pillFilter === 'POSTS'
                 ? 'bg-slate-900 border-sky-500 shadow-md ring-1 ring-sky-500'
                 : 'bg-slate-950 border-slate-850 hover:border-slate-700'
             }`}
           >
             <span className="text-slate-400 font-semibold">📍 Duty Posts:</span>
-            <span className="text-sm font-black text-sky-400">{allPostsList.length} Active Posts</span>
+            <span className="text-sm font-black text-sky-400 mt-1">{allPostsList.length} Active Posts</span>
           </button>
 
           {/* Pill 3: On Duty Today */}
           <button
             onClick={() => setPillFilter('ON_DUTY')}
-            className={`p-3 rounded-xl border flex items-center justify-between transition cursor-pointer text-left ${
+            className={`p-3 rounded-xl border flex flex-col justify-between transition cursor-pointer text-left ${
               pillFilter === 'ON_DUTY'
                 ? 'bg-emerald-950/60 border-emerald-500 shadow-md ring-1 ring-emerald-500'
                 : 'bg-slate-950 border-slate-850 hover:border-slate-700'
             }`}
           >
             <span className="text-slate-400 font-semibold">⚡ On Duty Today:</span>
-            <span className="text-sm font-black text-emerald-400">{assignments.length} Assigned</span>
+            <div className="mt-1">
+              <span className="text-sm font-black text-emerald-400">{assignments.length} Assigned</span>
+              <p className="text-[10px] text-slate-400 font-medium">
+                {normalAssignments.length} Normal {otAssignments.length > 0 ? `+ ${otAssignments.length} OT` : ''}
+              </p>
+            </div>
           </button>
 
-          {/* Pill 4: Off-Day / Leave */}
+          {/* Pill 4: Available for Duty (Standby Pool from Off-Day) */}
+          <button
+            onClick={() => setIsAvailableModalOpen(true)}
+            title="Standby = Today's eligible Off-Day guards available for emergency OT deployment"
+            className={`p-3 rounded-xl border flex flex-col justify-between transition cursor-pointer text-left hover:border-teal-500/80 ${
+              isAvailableModalOpen
+                ? 'bg-teal-950/60 border-teal-500 shadow-md ring-1 ring-teal-500'
+                : 'bg-slate-950 border-slate-850'
+            }`}
+          >
+            <span className="text-slate-400 font-semibold flex items-center gap-1">
+              <span>🟢 Available for Duty:</span>
+            </span>
+            <div className="mt-1">
+              <span className="text-sm font-black text-teal-400 flex items-center justify-between">
+                <span>{availableOffDayGuardsForOt.length} Standby</span>
+                <span className="text-[10px] text-teal-300 underline font-normal">View ➔</span>
+              </span>
+              <p className="text-[10px] text-slate-400 font-medium">Off-Day eligible for OT</p>
+            </div>
+          </button>
+
+          {/* Pill 5: Off-Day / Leave */}
           <button
             onClick={() => setIsOffDayModalOpen(true)}
-            className={`p-3 rounded-xl border flex items-center justify-between transition cursor-pointer text-left hover:border-amber-500/80 ${
+            className={`p-3 rounded-xl border flex flex-col justify-between transition cursor-pointer text-left hover:border-amber-500/80 ${
               isOffDayModalOpen
                 ? 'bg-amber-950/60 border-amber-500 shadow-md ring-1 ring-amber-500'
                 : 'bg-slate-950 border-slate-850'
             }`}
           >
-            <span className="text-slate-400 font-semibold">🏖️ Off-Day / Leave:</span>
-            <span className="text-sm font-black text-amber-400 flex items-center gap-1">
-              <span>{offDutyGuardsList.length} Rest / Leave</span>
-              <span className="text-[10px] text-amber-300 underline font-normal ml-1">View ➔</span>
-            </span>
+            <span className="text-slate-400 font-semibold">🏖️ Scheduled Off-Day:</span>
+            <div className="mt-1">
+              <span className="text-sm font-black text-amber-400 flex items-center justify-between">
+                <span>{availableOffDayGuardsForOt.length} Rest Day</span>
+                <span className="text-[10px] text-amber-300 underline font-normal">View ➔</span>
+              </span>
+              <p className="text-[10px] text-slate-400 font-medium">6/1 Cycle Rest</p>
+            </div>
+          </button>
+
+          {/* Pill 6: Overtime (OT) Deployments & Requests */}
+          <button
+            onClick={() => setIsOtListModalOpen(true)}
+            className={`p-3 rounded-xl border flex flex-col justify-between transition cursor-pointer text-left hover:border-orange-500/80 relative ${
+              isOtListModalOpen
+                ? 'bg-orange-950/60 border-orange-500 shadow-md ring-1 ring-orange-500'
+                : 'bg-slate-950 border-slate-850'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400 font-semibold flex items-center gap-1">
+                <span>⚡ Overtime (OT):</span>
+              </span>
+              {pendingOtCount > 0 && (
+                <span className="px-1.5 py-0.2 bg-rose-500 text-white font-black text-[9px] rounded-full animate-pulse">
+                  {pendingOtCount} new
+                </span>
+              )}
+            </div>
+            <div className="mt-1">
+              <span className="text-sm font-black text-orange-400 flex items-center justify-between">
+                <span>{otAssignments.length} Active OT</span>
+                <span className="text-[10px] text-orange-300 underline font-normal">View ➔</span>
+              </span>
+              <p className="text-[10px] text-slate-400 font-medium">
+                {pendingOtCount} pending review
+              </p>
+            </div>
           </button>
         </div>
       </div>
@@ -831,12 +925,14 @@ export const MasterRosterBoard: React.FC = () => {
 
             <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1 text-xs">
               {availableGuardsList.slice(0, 30).map((guard, idx) => {
-                const isAlreadyAssigned = assignedGuardIdsToday.has(guard.id);
+                const isAlreadyAssigned = assignedGuardIdsSet.has(guard.id);
+                const isOffDay = guard.dutyStreak >= 6;
                 // Calculate 6-day alternating cycle (even index = Day cycle, odd index = Night cycle)
                 const isDayCycle = idx % 2 === 0;
                 const isShiftMismatch =
-                  (activeSlotModal.shift === 'DAY' && !isDayCycle) ||
-                  (activeSlotModal.shift === 'NIGHT' && isDayCycle);
+                  !isOffDay &&
+                  ((activeSlotModal.shift === 'DAY' && !isDayCycle) ||
+                  (activeSlotModal.shift === 'NIGHT' && isDayCycle));
 
                 return (
                   <div
@@ -844,6 +940,8 @@ export const MasterRosterBoard: React.FC = () => {
                     className={`flex items-center justify-between p-2.5 rounded-xl border transition ${
                       isAlreadyAssigned
                         ? 'bg-slate-950/40 border-slate-850 opacity-60'
+                        : isOffDay
+                        ? 'bg-amber-950/30 border-amber-900/60 hover:border-amber-500'
                         : isShiftMismatch
                         ? 'bg-slate-950/80 border-slate-850 opacity-80'
                         : 'bg-slate-950 border-slate-800 hover:border-sky-500 cursor-pointer'
@@ -853,11 +951,20 @@ export const MasterRosterBoard: React.FC = () => {
                       <div className="font-bold text-white flex items-center gap-1.5">
                         <span>{guard.name}</span>
                         {guard.fixedPostId && <span className="text-[9px] text-emerald-400">🔒 Fixed</span>}
+                        {isOffDay && (
+                          <span className="px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-800 text-[9px] font-bold">
+                            🏖️ Off-Day (OT)
+                          </span>
+                        )}
                       </div>
                       <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
                         <span>Streak: {guard.dutyStreak}/6</span>
                         <span>•</span>
-                        {isDayCycle ? (
+                        {isOffDay ? (
+                          <span className="text-amber-400 font-semibold">
+                            🏖️ Weekly Rest Day • Available for OT
+                          </span>
+                        ) : isDayCycle ? (
                           <span className="text-amber-400 font-semibold flex items-center gap-0.5">
                             ☀️ 6-Day Cycle: Day Shift
                           </span>
@@ -872,6 +979,16 @@ export const MasterRosterBoard: React.FC = () => {
                     <button
                       disabled={isAlreadyAssigned}
                       onClick={async () => {
+                        if (isOffDay) {
+                          // Route to OT Deployment workflow
+                          setOtModalGuard(guard);
+                          setOtPostId(activeSlotModal.postId);
+                          setOtShift(activeSlotModal.shift);
+                          setOtReason(`Replacement for vacant slot at ${activeSlotModal.postName}`);
+                          setActiveSlotModal(null);
+                          return;
+                        }
+
                         if (isShiftMismatch) {
                           const confirmSwap = window.confirm(
                             `⚠️ Shift Rotation Rule Notice:\n\n${guard.name} is currently in a 6-day ${
@@ -897,12 +1014,14 @@ export const MasterRosterBoard: React.FC = () => {
                       className={`px-3 py-1 rounded-lg text-xs font-bold ${
                         isAlreadyAssigned
                           ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                          : isOffDay
+                          ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer shadow font-black'
                           : isShiftMismatch
                           ? 'bg-amber-950 text-amber-300 border border-amber-800 hover:bg-amber-900 cursor-pointer'
                           : 'bg-sky-500 hover:bg-sky-400 text-slate-950 cursor-pointer shadow'
                       }`}
                     >
-                      {isAlreadyAssigned ? 'Assigned' : isShiftMismatch ? 'Override' : 'Select'}
+                      {isAlreadyAssigned ? 'Assigned' : isOffDay ? '⚡ Deploy as OT' : isShiftMismatch ? 'Override' : 'Select'}
                     </button>
                   </div>
                 );
@@ -1009,7 +1128,7 @@ export const MasterRosterBoard: React.FC = () => {
         </div>
       )}
 
-      {/* Off-Day & Leave Personnel List Modal */}
+      {/* Off-Day Personnel List Modal */}
       {isOffDayModalOpen && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl text-white text-xs">
@@ -1018,10 +1137,10 @@ export const MasterRosterBoard: React.FC = () => {
                 <span className="text-xl">🏖️</span>
                 <div>
                   <h3 className="text-sm font-bold text-white">
-                    Off-Duty Personnel ({offDutyGuardsList.length} Guards)
+                    Scheduled Off-Day Personnel ({availableOffDayGuardsForOt.length} Guards)
                   </h3>
                   <p className="text-[11px] text-slate-400">
-                    Guards currently on scheduled 6/1 weekly rest day or approved leave
+                    Guards currently on scheduled 6/1 weekly rest day — eligible for Overtime (OT) deployment if needed
                   </p>
                 </div>
               </div>
@@ -1035,7 +1154,7 @@ export const MasterRosterBoard: React.FC = () => {
 
             <div className="max-h-[60vh] overflow-y-auto space-y-2 pr-1">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {offDutyGuardsList.map((guard) => {
+                {availableOffDayGuardsForOt.map((guard) => {
                   const loc = locations.find((l) => l.id === guard.defaultLocationId);
                   const fixedPost = loc?.posts.find((p) => p.id === guard.fixedPostId);
 
@@ -1047,17 +1166,17 @@ export const MasterRosterBoard: React.FC = () => {
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-white text-xs">{guard.name}</span>
                         <span className="px-2 py-0.5 rounded bg-amber-950/80 text-amber-300 border border-amber-800/80 text-[10px] font-bold">
-                          🏖️ Weekly OFF
+                          🏖️ Scheduled OFF-DAY
                         </span>
                       </div>
                       <div className="text-[10px] text-slate-400 flex items-center gap-2">
                         <span className="font-mono text-sky-400">{guard.badgeNumber}</span>
                         <span>•</span>
-                        <span>{guard.phone}</span>
+                        <span>Streak: {guard.dutyStreak}/6</span>
                       </div>
                       <div className="text-[10px] text-slate-500 flex items-center justify-between pt-1 border-t border-slate-900">
                         <span>Base: {loc?.name || 'Central'}</span>
-                        {fixedPost && <span className="text-emerald-400">🔒 {fixedPost.name}</span>}
+                        <span className="text-teal-400 font-semibold">✓ Eligible for OT</span>
                       </div>
 
                       {/* ⚡ Deploy Overtime Button */}
@@ -1065,11 +1184,12 @@ export const MasterRosterBoard: React.FC = () => {
                         onClick={() => {
                           setOtModalGuard(guard);
                           const defaultLoc = loc || locations[0];
-                          setOtPostId(fixedPost?.id || defaultLoc?.posts[0]?.id || '');
+                          setOtPostId(fixedPost?.id || defaultLoc?.posts[0]?.id || allPostsList[0]?.post?.id || '');
+                          setOtReason('Emergency replacement on scheduled weekly rest day');
                         }}
                         className="w-full mt-2 py-1.5 px-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 transition shadow"
                       >
-                        <span>⚡ Deploy on Overtime (OT)</span>
+                        <span>⚡ Deploy as Overtime (OT)</span>
                       </button>
                     </div>
                   );
@@ -1078,7 +1198,7 @@ export const MasterRosterBoard: React.FC = () => {
             </div>
 
             <div className="flex items-center justify-between pt-3 border-t border-slate-800 text-slate-400 text-[11px]">
-              <span>Cycle: 6 Days Duty completed ➔ 1 Day Rest</span>
+              <span>6/1 Rotation Rule: 6 Days Duty completed ➔ 1 Day Rest</span>
               <button
                 onClick={() => setIsOffDayModalOpen(false)}
                 className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl"
@@ -1090,26 +1210,28 @@ export const MasterRosterBoard: React.FC = () => {
         </div>
       )}
 
-      {/* ⚡ Overtime Deployment & Approval Modal */}
+      {/* ⚡ Overtime Deployment Confirmation & Reason Modal */}
       {otModalGuard && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <form
             onSubmit={async (e) => {
               e.preventDefault();
+              if (!otReason.trim()) {
+                showToast('⚠️ Please provide a mandatory deployment reason for Overtime (OT).');
+                return;
+              }
+              if (assignedGuardIdsSet.has(otModalGuard.id)) {
+                alert(`⚠️ Guard Already Deployed:\n\n${otModalGuard.name} (${otModalGuard.badgeNumber}) is already assigned to a post today.\nA guard cannot be assigned to multiple active posts.`);
+                return;
+              }
               try {
                 setIsSubmittingOt(true);
-                // If user is AGM or DGM, direct instant approval or submission
-                if (currentRole === 'AGM' || currentRole === 'DGM') {
-                  // Direct deployment with OT
-                  await requestOvertime(otModalGuard.id, otPostId, otShift, Number(otHours), otReason);
-                  showToast(`⚡ Overtime duty approved & deployed by ${currentRole}!`);
-                } else {
-                  // Submit for AGM/DGM approval
-                  await requestOvertime(otModalGuard.id, otPostId, otShift, Number(otHours), otReason);
-                  showToast(`📨 Overtime request sent to AGM/DGM for approval!`);
+                const res = await requestOvertime(otModalGuard.id, otPostId, otShift, Number(otHours), otReason);
+                if (res.success) {
+                  setOtModalGuard(null);
+                  setIsOffDayModalOpen(false);
+                  setIsAvailableModalOpen(false);
                 }
-                setOtModalGuard(null);
-                setIsOffDayModalOpen(false);
               } catch (err: any) {
                 showToast(`Error: ${err.message}`);
               } finally {
@@ -1121,7 +1243,7 @@ export const MasterRosterBoard: React.FC = () => {
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div>
                 <h3 className="text-sm font-black text-amber-400 flex items-center gap-1.5">
-                  <span>⚡ Deploy Off-Day Guard on Overtime</span>
+                  <span>⚡ Deploy Guard as Overtime (OT)</span>
                 </h3>
                 <p className="text-[11px] text-slate-300 font-bold mt-0.5">
                   Guard: {otModalGuard.name} ({otModalGuard.badgeNumber})
@@ -1138,10 +1260,10 @@ export const MasterRosterBoard: React.FC = () => {
 
             <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-800/80 text-amber-300 text-[11px] space-y-1">
               <div className="font-bold flex items-center gap-1">
-                <span>⚠️ AGM / DGM Approval Policy:</span>
+                <span>⚠️ Scheduled Status: OFF-DAY</span>
               </div>
               <p className="text-slate-300">
-                This guard is on scheduled weekly off-day. Assigning duty requires AGM or DGM authorization and will be counted as <strong>Overtime (OT) Hours</strong>.
+                This deployment will create an explicit <strong>Overtime (OT) Record</strong> and maintain the guard&apos;s scheduled Off-Day history for payroll &amp; audit.
               </p>
             </div>
 
@@ -1190,13 +1312,16 @@ export const MasterRosterBoard: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1 font-semibold">Deployment Reason:</label>
+                <label className="block text-slate-400 mb-1 font-semibold">
+                  Deployment Reason <span className="text-rose-400">*</span>:
+                </label>
                 <input
                   type="text"
+                  required
                   value={otReason}
                   onChange={(e) => setOtReason(e.target.value)}
-                  placeholder="e.g. Unscheduled staff shortage at Cargo Gate"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white font-medium outline-none"
+                  placeholder="e.g. Replacement for absent guard at Main Gate"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white font-medium outline-none focus:border-amber-500"
                 />
               </div>
             </div>
@@ -1214,14 +1339,494 @@ export const MasterRosterBoard: React.FC = () => {
                 disabled={isSubmittingOt}
                 className="px-5 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black rounded-xl shadow-lg transition"
               >
-                {isSubmittingOt
-                  ? 'Submitting...'
-                  : currentRole === 'AGM' || currentRole === 'DGM'
-                  ? '⚡ [ Approve & Deploy OT ]'
-                  : '📨 [ Submit for AGM/DGM Approval ]'}
+                {isSubmittingOt ? 'Deploying...' : '⚡ [ Deploy as OT ]'}
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* 🟢 Available Off-Day Personnel (Standby Pool Modal) */}
+      {isAvailableModalOpen && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-3xl w-full p-6 space-y-4 shadow-2xl text-white text-xs">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <span className="text-2xl">🟢</span>
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <span>Available Off-Day Personnel (Standby Pool)</span>
+                    <span className="px-2 py-0.5 rounded-full bg-teal-950 text-teal-300 border border-teal-800 text-[10px] font-extrabold">
+                      {availableOffDayGuardsForOt.length} Available for OT
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Today&apos;s scheduled Off-Day guards dynamically available for emergency Overtime (OT) deployment.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsAvailableModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Search filter for available guards */}
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                value={availableSearchQuery}
+                onChange={(e) => setAvailableSearchQuery(e.target.value)}
+                placeholder="🔍 Search available Off-Day guards by name, badge, phone, location..."
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-white outline-none focus:border-teal-500"
+              />
+            </div>
+
+            {/* Available Guards List */}
+            <div className="max-h-[55vh] overflow-y-auto space-y-2.5 pr-1">
+              {(() => {
+                const filteredAvailable = availableOffDayGuardsForOt.filter((g) => {
+                  if (!availableSearchQuery.trim()) return true;
+                  const q = availableSearchQuery.toLowerCase();
+                  return (
+                    g.name.toLowerCase().includes(q) ||
+                    g.badgeNumber?.toLowerCase().includes(q) ||
+                    g.phone?.toLowerCase().includes(q) ||
+                    (g as any).designation?.toLowerCase().includes(q)
+                  );
+                });
+
+                if (filteredAvailable.length === 0) {
+                  return (
+                    <div className="p-8 text-center bg-slate-950 rounded-xl border border-slate-850 space-y-2">
+                      <p className="text-sm font-bold text-slate-300">No available Off-Day personnel found</p>
+                      <p className="text-slate-500 text-[11px]">
+                        All scheduled workforce members are currently assigned to duty posts or deployed on active OT.
+                      </p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {filteredAvailable.map((guard) => {
+                      const loc = locations.find((l) => l.id === guard.defaultLocationId);
+                      const fixedPost = loc?.posts.find((p) => p.id === guard.fixedPostId);
+
+                      return (
+                        <div
+                          key={guard.id}
+                          className="bg-slate-950 border border-slate-850 rounded-xl p-3.5 space-y-2 hover:border-teal-500/50 transition shadow"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="font-bold text-white text-xs">{guard.name}</span>
+                              <div className="text-[10px] text-slate-400 flex items-center gap-1.5 mt-0.5">
+                                <span className="font-mono text-sky-400 font-bold">{guard.badgeNumber}</span>
+                                <span>•</span>
+                                <span>Streak: {guard.dutyStreak}/6</span>
+                              </div>
+                            </div>
+                            <span className="px-2 py-0.5 rounded bg-amber-950/80 text-amber-300 border border-amber-800/80 text-[10px] font-bold">
+                              🏖️ Scheduled OFF-DAY
+                            </span>
+                          </div>
+
+                          <div className="text-[10px] text-slate-500 flex items-center justify-between pt-1 border-t border-slate-900">
+                            <span>Base: <strong className="text-slate-300">{loc?.name || 'Central'}</strong></span>
+                            <span className="text-teal-400 font-bold">✓ Eligible for OT</span>
+                          </div>
+
+                          {/* Skills preview */}
+                          <div className="text-[10px] text-slate-400 flex items-center gap-1 flex-wrap">
+                            <span className="text-slate-500">Skills:</span>
+                            {(guard.qualifications || ['Gate Security', 'CCTV', 'Patrol']).map((q, qIdx) => (
+                              <span key={qIdx} className="px-1.5 py-0.2 rounded bg-slate-900 border border-slate-800 text-[9px] text-slate-300">
+                                {q}
+                              </span>
+                            ))}
+                          </div>
+
+                          {/* Deploy as OT Action Button */}
+                          <div className="pt-1">
+                            <button
+                              onClick={() => {
+                                setOtModalGuard(guard);
+                                const defaultLoc = loc || locations[0];
+                                setOtPostId(fixedPost?.id || defaultLoc?.posts[0]?.id || allPostsList[0]?.post?.id || '');
+                                setOtReason('Emergency replacement for vacant duty post');
+                              }}
+                              className="w-full py-1.5 px-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-[11px] flex items-center justify-center gap-1 transition shadow cursor-pointer"
+                            >
+                              <span>⚡ Deploy as OT</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="flex items-center justify-between pt-3 border-t border-slate-800 text-slate-400 text-[11px]">
+              <span>Deploying an Off-Day guard creates an official OT record &amp; assignment</span>
+              <button
+                onClick={() => setIsAvailableModalOpen(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ⚡ Quick Deploy Standby Guard Modal */}
+      {assigningGuard && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              try {
+                if (!assignPostId) {
+                  showToast('Please select a duty post');
+                  return;
+                }
+                const targetPostItem = allPostsList.find((item) => item.post.id === assignPostId);
+                const locId = targetPostItem?.location?.id || assigningGuard.defaultLocationId || locations[0]?.id || '';
+                await assignGuardToPost(assigningGuard.id, locId, assignPostId, assignShift);
+                showToast(`✅ Deployed ${assigningGuard.name} to duty post!`);
+                setAssigningGuard(null);
+                setIsAvailableModalOpen(false);
+              } catch (err: any) {
+                showToast(`Error: ${err.message}`);
+              }
+            }}
+            className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl text-white text-xs"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div>
+                <h3 className="text-sm font-black text-teal-400 flex items-center gap-1.5">
+                  <span>⚡ Assign Standby Guard to Duty Post</span>
+                </h3>
+                <p className="text-[11px] text-slate-300 font-bold mt-0.5">
+                  Guard: {assigningGuard.name} ({assigningGuard.badgeNumber})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAssigningGuard(null)}
+                className="p-1 text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-slate-400 mb-1 font-semibold">Select Duty Post:</label>
+                <select
+                  value={assignPostId}
+                  onChange={(e) => setAssignPostId(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white font-bold outline-none"
+                >
+                  {allPostsList.map(({ post, location }) => (
+                    <option key={post.id} value={post.id}>
+                      {post.name} — {location.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1 font-semibold">Duty Shift:</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAssignShift('DAY')}
+                    className={`py-2 px-3 rounded-xl border text-center font-bold text-xs transition ${
+                      assignShift === 'DAY'
+                        ? 'bg-amber-500/20 border-amber-500 text-amber-300 font-black'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    ☀️ Day Shift (12h)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAssignShift('NIGHT')}
+                    className={`py-2 px-3 rounded-xl border text-center font-bold text-xs transition ${
+                      assignShift === 'NIGHT'
+                        ? 'bg-indigo-500/20 border-indigo-500 text-indigo-300 font-black'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    🌙 Night Shift (12h)
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setAssigningGuard(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 bg-teal-500 hover:bg-teal-400 text-slate-950 font-black rounded-xl shadow-lg transition"
+              >
+                ⚡ [ Confirm Assignment ]
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ⚡ Overtime (OT) Requests Management & Approval Modal */}
+      {isOtListModalOpen && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-4xl w-full p-6 space-y-4 shadow-2xl text-white text-xs">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <span className="text-2xl">⚡</span>
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <span>Overtime (OT) Duty Requests Queue</span>
+                    <span className="px-2 py-0.5 rounded-full bg-orange-950 text-orange-300 border border-orange-800 text-[10px] font-extrabold">
+                      {overtimeRequests.length} Total Requests
+                    </span>
+                    {pendingOtCount > 0 && (
+                      <span className="px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[10px] font-black animate-pulse">
+                        {pendingOtCount} Awaiting Approval
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Review and authorize extra-shift overtime deployments submitted by Supervisors, Managers, and Staff.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsOtListModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Quick Filter Tabs & Search */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800 w-full sm:w-auto">
+                <button
+                  onClick={() => setOtFilterTab('ALL')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                    otFilterTab === 'ALL'
+                      ? 'bg-slate-800 text-white shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  All ({overtimeRequests.length})
+                </button>
+                <button
+                  onClick={() => setOtFilterTab('PENDING')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                    otFilterTab === 'PENDING'
+                      ? 'bg-amber-500 text-slate-950 font-black shadow'
+                      : 'text-amber-400 hover:text-amber-300'
+                  }`}
+                >
+                  <span>Pending</span>
+                  <span className="px-1.5 py-0.2 rounded-full bg-amber-950/80 text-amber-200 text-[9px]">
+                    {pendingOtCount}
+                  </span>
+                </button>
+                <button
+                  onClick={() => setOtFilterTab('APPROVED')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                    otFilterTab === 'APPROVED'
+                      ? 'bg-emerald-500 text-slate-950 font-black shadow'
+                      : 'text-emerald-400 hover:text-emerald-300'
+                  }`}
+                >
+                  <span>Approved</span>
+                  <span className="px-1.5 py-0.2 rounded-full bg-emerald-950/80 text-emerald-200 text-[9px]">
+                    {approvedOtCount}
+                  </span>
+                </button>
+                <button
+                  onClick={() => setOtFilterTab('REJECTED')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                    otFilterTab === 'REJECTED'
+                      ? 'bg-rose-500 text-white font-black shadow'
+                      : 'text-rose-400 hover:text-rose-300'
+                  }`}
+                >
+                  Rejected ({rejectedOtCount})
+                </button>
+              </div>
+
+              <div className="relative w-full sm:w-64">
+                <Search className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={otSearchQuery}
+                  onChange={(e) => setOtSearchQuery(e.target.value)}
+                  placeholder="Filter guard, post, badge..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white outline-none focus:border-orange-500"
+                />
+              </div>
+            </div>
+
+            {/* Overtime Requests List */}
+            <div className="max-h-[55vh] overflow-y-auto space-y-2.5 pr-1">
+              {(() => {
+                const filteredOTs = overtimeRequests.filter((req) => {
+                  if (otFilterTab !== 'ALL' && req.status !== otFilterTab) return false;
+                  if (!otSearchQuery.trim()) return true;
+                  const q = otSearchQuery.toLowerCase();
+                  return (
+                    req.guardName.toLowerCase().includes(q) ||
+                    req.postName?.toLowerCase().includes(q) ||
+                    req.locationName?.toLowerCase().includes(q) ||
+                    req.requestedBy?.toLowerCase().includes(q) ||
+                    req.reason?.toLowerCase().includes(q)
+                  );
+                });
+
+                if (filteredOTs.length === 0) {
+                  return (
+                    <div className="p-8 text-center bg-slate-950 rounded-xl border border-slate-850 space-y-2">
+                      <p className="text-sm font-bold text-slate-300">No overtime requests found</p>
+                      <p className="text-slate-500 text-[11px]">
+                        {otFilterTab === 'PENDING'
+                          ? 'All pending overtime requests have been reviewed.'
+                          : 'No matching records in this view.'}
+                      </p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-2.5">
+                    {filteredOTs.map((req) => {
+                      const guard = guards.find((g) => g.id === req.guardId);
+
+                      return (
+                        <div
+                          key={req.id}
+                          className="bg-slate-950 border border-slate-850 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-slate-700 transition shadow"
+                        >
+                          <div className="space-y-1.5 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-extrabold text-white text-xs">{req.guardName}</span>
+                              {guard?.badgeNumber && (
+                                <span className="font-mono text-sky-400 font-bold text-[10px] bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                                  {guard.badgeNumber}
+                                </span>
+                              )}
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-black border ${
+                                  req.status === 'PENDING'
+                                    ? 'bg-amber-950 text-amber-400 border-amber-800/80 animate-pulse'
+                                    : req.status === 'APPROVED'
+                                    ? 'bg-emerald-950 text-emerald-400 border-emerald-800/80'
+                                    : 'bg-rose-950 text-rose-400 border-rose-800/80'
+                                }`}
+                              >
+                                {req.status === 'PENDING'
+                                  ? '🕒 PENDING APPROVAL'
+                                  : req.status === 'APPROVED'
+                                  ? '✅ APPROVED & DEPLOYED'
+                                  : '❌ REJECTED'}
+                              </span>
+                            </div>
+
+                            <div className="text-[11px] text-slate-300 flex items-center gap-3 flex-wrap">
+                              <span>
+                                📍 Post: <strong className="text-white">{req.postName || 'Assigned Post'}</strong>
+                              </span>
+                              <span>•</span>
+                              <span>
+                                🏢 Base: <strong className="text-white">{req.locationName || 'Central Area'}</strong>
+                              </span>
+                              <span>•</span>
+                              <span>
+                                {req.shift === 'DAY' ? '☀️ Day Shift' : '🌙 Night Shift'} (<strong>{req.hours || 12}h OT</strong>)
+                              </span>
+                            </div>
+
+                            <div className="text-[10px] text-slate-400 flex items-center gap-2 flex-wrap pt-0.5">
+                              <span className="text-amber-300/90 font-medium">💬 Reason: {req.reason || 'Rest day overtime coverage'}</span>
+                              <span>•</span>
+                              <span>Requested by: <strong className="text-slate-300">{req.requestedBy || 'Field Supervisor'}</strong></span>
+                              {req.approvedBy && (
+                                <>
+                                  <span>•</span>
+                                  <span>Authorized by: <strong className="text-emerald-400">{req.approvedBy}</strong></span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Action Buttons for Pending Requests */}
+                          {req.status === 'PENDING' && (
+                            <div className="flex items-center gap-2 sm:self-center">
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await approveOvertime(req.id);
+                                    showToast(`✅ Overtime approved & guard deployed!`);
+                                  } catch (err: any) {
+                                    showToast(`Error: ${err.message}`);
+                                  }
+                                }}
+                                className="px-3.5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl shadow-lg transition flex items-center gap-1"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>[ Approve & Deploy ]</span>
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await rejectOvertime(req.id);
+                                    showToast(`Overtime request rejected.`);
+                                  } catch (err: any) {
+                                    showToast(`Error: ${err.message}`);
+                                  }
+                                }}
+                                className="px-3 py-2 bg-rose-950/80 hover:bg-rose-900 border border-rose-800 text-rose-300 font-bold text-xs rounded-xl transition flex items-center gap-1"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                                <span>[ Reject ]</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="flex items-center justify-between pt-3 border-t border-slate-800 text-slate-400 text-[11px]">
+              <span>Authorizations are logged with audit timestamps</span>
+              <button
+                onClick={() => setIsOtListModalOpen(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl"
+              >
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

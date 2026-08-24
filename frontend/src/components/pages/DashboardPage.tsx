@@ -97,27 +97,27 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 2. Quick Actions (Buttons per Spec) */}
+      {/* 2. Quick Actions */}
       <div className="flex items-center gap-3 flex-wrap">
         <button
-          onClick={() => setActiveNav('generate')}
+          onClick={() => setActiveNav('deployment')}
           className="px-5 py-2.5 bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 text-slate-950 font-bold text-xs rounded-xl flex items-center gap-2 shadow-lg transition"
         >
-          <Sparkles className="w-4 h-4" /> [ Generate Roster ]
+          <Layers className="w-4 h-4" /> [ Open Roster Maker ]
         </button>
 
         <button
-          onClick={() => setActiveNav('deployment')}
+          onClick={() => setActiveNav('matrix')}
           className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 font-bold text-xs rounded-xl flex items-center gap-2 transition"
         >
-          <Layers className="w-4 h-4 text-sky-400" /> [ View Deployment Board ]
+          <Sparkles className="w-4 h-4 text-sky-400" /> [ Guards & Duty Matrix ]
         </button>
 
         <button
-          onClick={() => setActiveNav('health')}
+          onClick={() => setActiveNav('reports')}
           className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-emerald-400 font-bold text-xs rounded-xl flex items-center gap-2 transition"
         >
-          <ShieldCheck className="w-4 h-4 text-emerald-400" /> [ Check Roster Health ]
+          <ShieldCheck className="w-4 h-4 text-emerald-400" /> [ View Reports & Muster ]
         </button>
       </div>
 

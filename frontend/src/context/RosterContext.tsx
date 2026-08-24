@@ -51,17 +51,40 @@ export interface Assignment {
   shift: 'DAY' | 'NIGHT';
   date: string;
   status: 'confirmed' | 'removed';
+  isOvertime?: boolean;
+  otHours?: number;
+}
+
+export type LeaveStatusType =
+  | 'PENDING_SUPERVISOR'
+  | 'PENDING_MANAGER'
+  | 'PENDING_EXECUTIVE'
+  | 'APPROVED'
+  | 'REJECTED';
+
+export interface LeaveApprovalRecord {
+  name: string;
+  role?: string;
+  date: string;
+  comment?: string;
 }
 
 export interface LeaveReq {
   id: string;
   guardId: string;
+  guardBadge?: string;
   guardName: string;
   startDate: string;
   endDate: string;
   reason: string;
-  status: 'PENDING' | 'APPROVED' | 'REJECTED';
-  rejectionReason?: string;
+  type?: string;
+  status: LeaveStatusType;
+  supervisorApproval?: LeaveApprovalRecord | null;
+  managerApproval?: LeaveApprovalRecord | null;
+  executiveApproval?: LeaveApprovalRecord | null;
+  rejectionReason?: string | null;
+  rejectedBy?: string | null;
+  createdAt?: string;
 }
 
 export interface OvertimeReq {
@@ -89,6 +112,76 @@ export interface UserSession {
   title: string;
 }
 
+export interface UserAccount {
+  id: string;
+  username: string;
+  email: string;
+  password: string;
+  role: RoleType;
+  name: string;
+  title: string;
+  badge: string;
+  color: string;
+}
+
+export const OFFICIAL_ACCOUNTS: UserAccount[] = [
+  {
+    id: 'USR-DGM-01',
+    username: 'dgm01',
+    email: 'dgm@shieldops.com',
+    password: 'dgm@2026',
+    role: 'DGM',
+    name: 'Brig. Gen. (Retd) Anwar Hossain',
+    title: 'Deputy General Manager (Chief Security)',
+    badge: '👑 DGM (Chief Executive)',
+    color: 'border-amber-500 bg-amber-950/40 text-amber-300',
+  },
+  {
+    id: 'USR-AGM-01',
+    username: 'agm01',
+    email: 'agm@shieldops.com',
+    password: 'agm@2026',
+    role: 'AGM',
+    name: 'Major (Retd) M. A. Jalil',
+    title: 'Assistant General Manager (Operations)',
+    badge: '🛡️ AGM (Operations)',
+    color: 'border-sky-500 bg-sky-950/40 text-sky-300',
+  },
+  {
+    id: 'USR-MGR-01',
+    username: 'mgr01',
+    email: 'manager@shieldops.com',
+    password: 'mgr@2026',
+    role: 'MANAGER',
+    name: 'Md. Imran Hossain',
+    title: 'Security Operations Manager',
+    badge: '📋 Operations Manager',
+    color: 'border-emerald-500 bg-emerald-950/40 text-emerald-300',
+  },
+  {
+    id: 'USR-SUP-01',
+    username: 'sup01',
+    email: 'supervisor@shieldops.com',
+    password: 'sup@2026',
+    role: 'SUPERVISOR',
+    name: 'Md. Delwar Hossain',
+    title: 'Senior Field Supervisor',
+    badge: '👮 Field Supervisor',
+    color: 'border-purple-500 bg-purple-950/40 text-purple-300',
+  },
+  {
+    id: 'USR-GRD-01',
+    username: 'guard01',
+    email: 'guard@shieldops.com',
+    password: 'guard@2026',
+    role: 'SECURITY_GUARD',
+    name: 'Abdul Mahfuz Islam',
+    title: 'Senior Security Guard (G-001)',
+    badge: '👤 Security Guard',
+    color: 'border-slate-500 bg-slate-900 text-slate-300',
+  },
+];
+
 export interface ToastItem {
   id: string;
   message: string;
@@ -106,6 +199,7 @@ interface RosterContextType {
   currentRole: RoleType;
   setCurrentRole: (role: RoleType) => void;
   loginUser: (role: RoleType, email?: string, password?: string) => void;
+  loginWithCredentials: (identifier: string, password: string) => { success: boolean; error?: string };
   logoutUser: () => void;
 
   locations: SystemLocation[];
@@ -129,11 +223,19 @@ interface RosterContextType {
   autoFixAll: () => Promise<void>;
 
   leaveRequests: LeaveReq[];
-  approveLeave: (id: string) => Promise<void>;
+  applyLeave: (leaveData: { guardId?: string; guardName?: string; startDate: string; endDate: string; type: string; reason: string }) => Promise<void>;
+  approveLeave: (id: string, comment?: string) => Promise<void>;
   rejectLeave: (id: string, reason: string) => Promise<void>;
 
   overtimeRequests: OvertimeReq[];
-  requestOvertime: (guardId: string, postId: string, shift: 'DAY' | 'NIGHT', hours?: number, reason?: string) => Promise<void>;
+  requestOvertime: (
+    guardId: string,
+    postId: string,
+    shift: 'DAY' | 'NIGHT',
+    hours?: number,
+    reason?: string,
+    autoApprove?: boolean
+  ) => Promise<{ success: boolean; error?: string }>;
   approveOvertime: (id: string) => Promise<void>;
   rejectOvertime: (id: string) => Promise<void>;
 
@@ -171,6 +273,23 @@ export const RosterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     title: 'Operations Manager',
   });
   const [currentRole, setCurrentRole] = useState<RoleType>('MANAGER');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('shieldops_user');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (parsed) {
+            setCurrentUser(parsed);
+            if (parsed.role) setCurrentRole(parsed.role);
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }, []);
   const [activeNav, setActiveNav] = useState('dashboard');
   const [selectedLocationFilter, setSelectedLocationFilter] = useState('ALL');
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -182,29 +301,65 @@ export const RosterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [leaveRequests, setLeaveRequests] = useState<LeaveReq[]>([]);
   const [overtimeRequests, setOvertimeRequests] = useState<OvertimeReq[]>([]);
 
-  const loginUser = (role: RoleType, email?: string, password?: string) => {
-    const roleProfiles: Record<RoleType, { name: string; email: string; title: string }> = {
-      DGM: { name: 'Brig. Gen. (Retd) Anwar Hossain', email: 'dgm@shieldops.com', title: 'Deputy General Manager (Chief Security)' },
-      AGM: { name: 'Major (Retd) M. A. Jalil', email: 'agm@shieldops.com', title: 'Assistant General Manager (Operations)' },
-      MANAGER: { name: 'Md. Imran Hossain', email: 'manager@shieldops.com', title: 'Security Operations Manager' },
-      SUPERVISOR: { name: 'Md. Delwar Hossain', email: 'supervisor@shieldops.com', title: 'Senior Field Supervisor' },
-      SECURITY_GUARD: { name: 'Abdul Mahfuz Islam', email: 'guard@shieldops.com', title: 'Senior Security Guard (G-001)' },
+  const loginWithCredentials = (identifier: string, password: string): { success: boolean; error?: string } => {
+    const cleanId = identifier.trim().toLowerCase();
+    const cleanPass = password.trim();
+
+    const matched = OFFICIAL_ACCOUNTS.find(
+      (acc) =>
+        (acc.username.toLowerCase() === cleanId || acc.email.toLowerCase() === cleanId) &&
+        acc.password === cleanPass
+    );
+
+    if (!matched) {
+      return { success: false, error: 'Invalid ID/Email or Password. Access Denied.' };
+    }
+
+    const session: UserSession = {
+      id: matched.id,
+      email: matched.email,
+      name: matched.name,
+      role: matched.role,
+      title: matched.title,
     };
 
-    const prof = roleProfiles[role];
-    setCurrentUser({
-      id: `USR-${role}-01`,
-      email: email || prof.email,
-      name: prof.name,
-      role,
-      title: prof.title,
-    });
-    setCurrentRole(role);
-    showToast(`Logged in as ${prof.name} (${role})`);
+    setCurrentUser(session);
+    setCurrentRole(matched.role);
+    setActiveNav('dashboard');
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('shieldops_user', JSON.stringify(session));
+    }
+
+    showToast(`Authenticated as ${matched.name} (${matched.role})`);
+    return { success: true };
+  };
+
+  const loginUser = (role: RoleType, email?: string, password?: string) => {
+    const found = OFFICIAL_ACCOUNTS.find((a) => a.role === role);
+    if (found) {
+      const session: UserSession = {
+        id: found.id,
+        email: email || found.email,
+        name: found.name,
+        role: found.role,
+        title: found.title,
+      };
+      setCurrentUser(session);
+      setCurrentRole(found.role);
+      setActiveNav('dashboard');
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('shieldops_user', JSON.stringify(session));
+      }
+      showToast(`Logged in as ${found.name} (${role})`);
+    }
   };
 
   const logoutUser = () => {
     setCurrentUser(null);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('shieldops_user');
+    }
     showToast('Logged out successfully.');
   };
 
@@ -237,11 +392,12 @@ export const RosterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
 
       // 2. Fetch Guards
+      let loadedGuards: GuardProfile[] = [];
       const guardRes = await fetch('/api/guards');
       const guardJson = await guardRes.json();
       if (guardJson.success && guardJson.data) {
         const bloods = ['A+', 'B+', 'O+', 'AB+', 'O-', 'A-'];
-        const mappedGuards: GuardProfile[] = guardJson.data.map((g: any, i: number) => ({
+        loadedGuards = guardJson.data.map((g: any, i: number) => ({
           id: g.id,
           name: g.name,
           badgeNumber: `G-${String(i + 1).padStart(3, '0')}`,
@@ -259,7 +415,7 @@ export const RosterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           nightCountThisWeek: i % 4,
           qualifications: ['Gate Security', 'CCTV Monitoring', 'Fire Safety'],
         }));
-        setGuards(mappedGuards);
+        setGuards(loadedGuards);
       }
 
       // 3. Fetch Assignments for currentDate
@@ -273,6 +429,8 @@ export const RosterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           postId: a.postId,
           shift: a.shift,
           date: currentDate,
+          isOvertime: Boolean(a.isOvertime),
+          otHours: Number(a.otHours) || (a.isOvertime ? 12 : 0),
           status: a.status === 'CONFIRMED' ? 'confirmed' : 'removed',
         }));
         setAssignments(mappedAssignments);
@@ -282,15 +440,29 @@ export const RosterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const leaveRes = await fetch('/api/leave');
       const leaveJson = await leaveRes.json();
       if (leaveJson.success && leaveJson.data) {
-        const mappedLeaves: LeaveReq[] = leaveJson.data.map((l: any) => ({
-          id: l.id,
-          guardId: l.guardId,
-          guardName: l.guard?.name || 'Guard',
-          startDate: l.startDate.split('T')[0],
-          endDate: l.endDate.split('T')[0],
-          reason: l.type,
-          status: l.status,
-        }));
+        const mappedLeaves: LeaveReq[] = leaveJson.data.map((l: any) => {
+          const matchedG = (loadedGuards.length > 0 ? loadedGuards : guards).find((g: GuardProfile) => g.id === l.guardId || g.name === l.guardName);
+          const cleanBadge = matchedG?.badgeNumber || 'G-001';
+          const cleanName = (l.guardName && l.guardName !== 'Guard') ? l.guardName : (matchedG?.name || l.guard?.name || 'Abdul Mahfuz Islam');
+
+          return {
+            id: l.id,
+            guardId: l.guardId,
+            guardBadge: cleanBadge,
+            guardName: cleanName,
+            startDate: l.startDate ? l.startDate.split('T')[0] : '2026-08-25',
+            endDate: l.endDate ? l.endDate.split('T')[0] : '2026-08-27',
+            reason: l.reason || l.type || 'Personal Leave',
+            type: l.type || 'Casual Leave (CL)',
+            status: l.status || 'PENDING_SUPERVISOR',
+            supervisorApproval: l.supervisorApproval || null,
+            managerApproval: l.managerApproval || null,
+            executiveApproval: l.executiveApproval || null,
+            rejectionReason: l.rejectionReason || null,
+            rejectedBy: l.rejectedBy || null,
+            createdAt: l.createdAt,
+          };
+        });
         setLeaveRequests(mappedLeaves);
       }
 
@@ -638,17 +810,76 @@ export const RosterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  const approveLeave = async (id: string) => {
+  const applyLeave = async (leaveData: {
+    guardId?: string;
+    guardName?: string;
+    startDate: string;
+    endDate: string;
+    type: string;
+    reason: string;
+  }) => {
     try {
+      const targetGuardId = leaveData.guardId || (guards[0]?.id || 'GUARD-01');
+      const res = await fetch('/api/leave', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          guardId: targetGuardId,
+          startDate: leaveData.startDate,
+          endDate: leaveData.endDate,
+          type: leaveData.type,
+          reason: leaveData.reason,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        await refreshData();
+        showToast('Leave request submitted! Sent to Field Supervisor for Stage-1 recommendation.');
+      } else {
+        showToast(`Leave application failed: ${data.error}`);
+      }
+    } catch (err: any) {
+      console.error('Error applying for leave:', err);
+      showToast(`Error: ${err.message}`);
+    }
+  };
+
+  const approveLeave = async (id: string, comment?: string) => {
+    try {
+      const existing = leaveRequests.find((l) => l.id === id);
+      let targetStatus = 'PENDING_MANAGER';
+      let toastMsg = '';
+
+      if (currentRole === 'SUPERVISOR') {
+        targetStatus = 'PENDING_MANAGER';
+        toastMsg = 'Supervisor recommended leave. Forwarded to Operations Manager for endorsement.';
+      } else if (currentRole === 'MANAGER') {
+        targetStatus = 'PENDING_EXECUTIVE';
+        toastMsg = 'Operations Manager endorsed leave. Forwarded to AGM/DGM for final authorization.';
+      } else if (currentRole === 'AGM' || currentRole === 'DGM') {
+        targetStatus = 'APPROVED';
+        toastMsg = 'Executive Final Authorization granted! Guard marked ON-LEAVE.';
+      } else {
+        targetStatus = existing?.status === 'PENDING_SUPERVISOR' ? 'PENDING_MANAGER' : 'PENDING_EXECUTIVE';
+        toastMsg = 'Leave forwarded to next approval stage.';
+      }
+
       await fetch('/api/leave', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, status: 'APPROVED' }),
+        body: JSON.stringify({
+          id,
+          status: targetStatus,
+          approverName: currentUser?.name || currentRole,
+          approverRole: currentRole,
+          comment,
+        }),
       });
       await refreshData();
-      showToast('Leave approved & guard marked unavailable in database.');
-    } catch (err) {
+      showToast(toastMsg);
+    } catch (err: any) {
       console.error('Error approving leave:', err);
+      showToast(`Error approving leave: ${err.message}`);
     }
   };
 
@@ -657,12 +888,18 @@ export const RosterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       await fetch('/api/leave', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, status: 'REJECTED' }),
+        body: JSON.stringify({
+          id,
+          status: 'REJECTED',
+          rejectedBy: currentUser?.name || `${currentRole} Authority`,
+          rejectionReason: reason,
+        }),
       });
       await refreshData();
-      showToast('Leave request rejected in database.');
-    } catch (err) {
+      showToast(`Leave request rejected by ${currentRole}.`);
+    } catch (err: any) {
       console.error('Error rejecting leave:', err);
+      showToast(`Error rejecting leave: ${err.message}`);
     }
   };
 
@@ -671,9 +908,11 @@ export const RosterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     postId: string,
     shift: 'DAY' | 'NIGHT',
     hours: number = 12,
-    reason?: string
-  ) => {
+    reason?: string,
+    autoApprove?: boolean
+  ): Promise<{ success: boolean; error?: string }> => {
     try {
+      const isAuto = autoApprove ?? (currentRole === 'AGM' || currentRole === 'DGM' || currentRole === 'MANAGER');
       const res = await fetch('/api/overtime', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -685,18 +924,27 @@ export const RosterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           date: currentDate,
           reason: reason || 'Emergency deployment on scheduled weekly rest day',
           requestedBy: currentUser?.title || currentRole,
+          autoApprove: isAuto,
+          approvedBy: isAuto ? (currentUser?.name || `${currentRole} Authority`) : undefined,
         }),
       });
       const data = await res.json();
       if (data.success) {
         await refreshData();
-        showToast(`⚡ Overtime request submitted for AGM/DGM approval!`);
+        showToast(
+          data.assignment
+            ? `⚡ Deployed on Overtime (OT) to post with official OT record!`
+            : `📨 Overtime request submitted for executive approval!`
+        );
+        return { success: true };
       } else {
-        showToast(`Request failed: ${data.error}`);
+        showToast(`Deployment error: ${data.error}`);
+        return { success: false, error: data.error };
       }
     } catch (err: any) {
       console.error('Error submitting overtime request:', err);
       showToast(`Error: ${err.message}`);
+      return { success: false, error: err.message };
     }
   };
 
@@ -756,6 +1004,7 @@ export const RosterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         currentRole,
         setCurrentRole,
         loginUser,
+        loginWithCredentials,
         logoutUser,
         locations,
         addLocation,
@@ -774,6 +1023,7 @@ export const RosterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         autoFixLocation,
         autoFixAll,
         leaveRequests,
+        applyLeave,
         approveLeave,
         rejectLeave,
         overtimeRequests,

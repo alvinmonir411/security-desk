@@ -46,20 +46,35 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
 
   const pendingOTCount = overtimeRequests.filter((r) => r.status === 'PENDING').length;
 
-  // Navigation Items per Spec
-  const navItems = [
-    { id: 'dashboard', label: currentRole === 'DGM' ? '1. DGM Executive Command' : currentRole === 'AGM' ? '1. AGM Operations Command' : '1. Dashboard', icon: LayoutDashboard, roles: ['MANAGER', 'AGM', 'DGM', 'SUPERVISOR', 'SECURITY_GUARD'] },
-    { id: 'deployment', label: '2. Master Deployment Board', icon: Layers, roles: ['MANAGER', 'SUPERVISOR', 'AGM', 'DGM'] },
-    { id: 'matrix', label: '3. Guards & Duty Matrix (7-day)', icon: CalendarDays, roles: ['MANAGER', 'AGM', 'DGM', 'SUPERVISOR'] },
-    { id: 'generate', label: '4. Generate Roster (Wizard)', icon: Wand2, roles: ['MANAGER', 'DGM'] },
-    { id: 'health', label: '5. Roster Health / Validation', icon: ShieldCheck, roles: ['MANAGER', 'AGM', 'DGM'] },
-    { id: 'leave', label: '6. Leave & Attendance', icon: CalendarCheck2, roles: ['MANAGER', 'SUPERVISOR', 'SECURITY_GUARD', 'AGM', 'DGM'] },
-    { id: 'reports', label: '7. Reports & Muster Roll', icon: FileSpreadsheet, roles: ['MANAGER', 'AGM', 'DGM', 'SUPERVISOR'] },
-    { id: 'settings', label: '8. Settings', icon: Settings, roles: ['MANAGER', 'DGM'] },
+  // Navigation Items with Dynamic Numbering & Strict Role Filtering
+  const rawNavItems = [
+    {
+      id: 'dashboard',
+      label:
+        currentRole === 'DGM'
+          ? 'DGM Executive Command'
+          : currentRole === 'AGM'
+          ? 'AGM Operations Command'
+          : currentRole === 'SECURITY_GUARD'
+          ? 'My Portal'
+          : 'Operations Dashboard',
+      icon: LayoutDashboard,
+      roles: ['MANAGER', 'AGM', 'DGM', 'SUPERVISOR', 'SECURITY_GUARD'],
+    },
+    { id: 'deployment', label: 'Roster Maker', icon: Layers, roles: ['MANAGER', 'SUPERVISOR', 'AGM', 'DGM'] },
+    { id: 'matrix', label: 'Guards Directory & Duty Matrix', icon: CalendarDays, roles: ['MANAGER', 'AGM', 'DGM', 'SUPERVISOR', 'SECURITY_GUARD'] },
+    { id: 'leave', label: 'Leave & Attendance', icon: CalendarCheck2, roles: ['MANAGER', 'SUPERVISOR', 'SECURITY_GUARD', 'AGM', 'DGM'] },
+    { id: 'reports', label: 'Reports & Muster Roll', icon: FileSpreadsheet, roles: ['MANAGER', 'AGM', 'DGM', 'SUPERVISOR'] },
+    { id: 'settings', label: 'Settings', icon: Settings, roles: ['MANAGER', 'DGM'] },
   ];
 
-  // Filtered by active role
-  const visibleNavs = navItems.filter((item) => item.roles.includes(currentRole));
+  // Filtered and clean 1-indexed for the logged-in role
+  const visibleNavs = rawNavItems
+    .filter((item) => item.roles.includes(currentRole))
+    .map((item, idx) => ({
+      ...item,
+      displayLabel: `${idx + 1}. ${item.label}`,
+    }));
 
   const formatDisplayDate = (dStr: string) => {
     const d = new Date(dStr);
@@ -128,7 +143,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
                 }`}
               >
                 <Icon className="w-4 h-4 flex-shrink-0" />
-                <span className="truncate">{item.label}</span>
+                <span className="truncate">{item.displayLabel}</span>
               </button>
             );
           })}
@@ -204,25 +219,21 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
               </button>
             )}
 
-            {/* Quick Role Switcher */}
-            <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl px-2 py-1">
-              <span className="text-[10px] text-slate-500 font-semibold">Role:</span>
-              <select
-                value={currentRole}
-                onChange={(e) => loginUser(e.target.value as RoleType)}
-                className="bg-transparent text-xs font-bold text-sky-400 outline-none cursor-pointer"
-              >
-                <option value="DGM">👑 DGM (Top Executive)</option>
-                <option value="AGM">🛡️ AGM (Executive)</option>
-                <option value="MANAGER">📋 Operations Manager</option>
-                <option value="SUPERVISOR">👮 Field Supervisor</option>
-                <option value="SECURITY_GUARD">👤 Guard Portal</option>
-              </select>
+            {/* Authenticated User Badge (Strict No-Switching) */}
+            <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 shadow-sm">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" title="Active & Authenticated"></span>
+              <span className="text-[11px] font-extrabold text-sky-400">
+                {currentRole === 'DGM' ? '👑 DGM' : currentRole === 'AGM' ? '🛡️ AGM' : currentRole === 'MANAGER' ? '📋 MANAGER' : currentRole === 'SUPERVISOR' ? '👮 SUPERVISOR' : '👤 GUARD'}
+              </span>
+              <span className="text-slate-600">|</span>
+              <span className="text-[11px] text-slate-300 font-semibold max-w-[160px] truncate" title={currentUser?.name}>
+                {currentUser?.name}
+              </span>
             </div>
 
             <button
               onClick={logoutUser}
-              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl flex items-center gap-1.5 transition"
+              className="px-3 py-1.5 bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/80 text-rose-300 font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer"
             >
               <LogOut className="w-3.5 h-3.5" /> Logout
             </button>

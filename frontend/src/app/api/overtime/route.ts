@@ -18,7 +18,21 @@ export async function GET(req: Request) {
       orderBy: { createdAt: 'desc' },
     });
 
-    return NextResponse.json({ success: true, data: requests });
+    const posts = await prisma.post.findMany({
+      include: { location: true },
+    });
+    const postMap = new Map(posts.map((p) => [p.id, p]));
+
+    const enrichedRequests = requests.map((r) => {
+      const p = postMap.get(r.postId);
+      return {
+        ...r,
+        postName: p?.name || 'Duty Post',
+        locationName: p?.location?.name || 'Main Complex',
+      };
+    });
+
+    return NextResponse.json({ success: true, data: enrichedRequests });
   } catch (error: any) {
     console.error('Error fetching overtime requests:', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
@@ -28,7 +42,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { guardId, postId, shift, hours, date, reason, requestedBy } = body;
+    const { guardId, postId, shift, hours, date, reason, requestedBy, autoApprove, approvedBy } = body;
 
     if (!guardId || !postId || !shift) {
       return NextResponse.json(
@@ -37,23 +51,70 @@ export async function POST(req: Request) {
       );
     }
 
+    const assignmentDate = new Date(date || '2026-08-24');
+    const startOfDay = new Date(new Date(assignmentDate).setUTCHours(0, 0, 0, 0));
+    const endOfDay = new Date(new Date(assignmentDate).setUTCHours(23, 59, 59, 999));
+
+    // Double Assignment Check
+    const existingAsg = await prisma.assignment.findFirst({
+      where: {
+        guardId,
+        date: { gte: startOfDay, lte: endOfDay },
+        status: AssignmentStatus.CONFIRMED,
+      },
+      include: { post: true },
+    });
+
+    if (existingAsg) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Guard is already deployed to ${existingAsg.post?.name || 'a post'} (${existingAsg.shift} Shift${existingAsg.isOvertime ? ' - OT' : ''}). A guard cannot be assigned to multiple active posts.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    const isAuto = Boolean(autoApprove);
     const otReq = await prisma.overtimeRequest.create({
       data: {
         guardId,
         postId,
         shift: shift === 'NIGHT' ? Shift.NIGHT : Shift.DAY,
         hours: Number(hours) || 12,
-        date: new Date(date || '2026-08-24'),
-        reason: reason || 'Emergency staffing replacement on weekly rest day',
+        date: assignmentDate,
+        reason: reason || 'Emergency replacement on scheduled weekly rest day',
         requestedBy: requestedBy || 'MANAGER',
-        status: OvertimeStatus.PENDING,
+        approvedBy: isAuto ? (approvedBy || requestedBy || 'Executive Authorization') : null,
+        status: isAuto ? OvertimeStatus.APPROVED : OvertimeStatus.PENDING,
       },
       include: {
         guard: true,
       },
     });
 
-    return NextResponse.json({ success: true, data: otReq });
+    let assignment = null;
+    if (isAuto) {
+      assignment = await prisma.assignment.create({
+        data: {
+          guardId,
+          postId,
+          shift: shift === 'NIGHT' ? Shift.NIGHT : Shift.DAY,
+          date: assignmentDate,
+          isOvertime: true,
+          otHours: Number(hours) || 12,
+          status: AssignmentStatus.CONFIRMED,
+        },
+        include: {
+          guard: true,
+          post: {
+            include: { location: true },
+          },
+        },
+      });
+    }
+
+    return NextResponse.json({ success: true, data: otReq, assignment });
   } catch (error: any) {
     console.error('Error creating overtime request:', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

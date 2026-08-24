@@ -7,7 +7,7 @@ import { Shift, AssignmentStatus, GuardStatus } from '@prisma/client';
  * - 6 days in Shift A (e.g. Day Shift) -> 1 Off-Day -> 6 days in Shift B (Night Shift) -> 1 Off-Day -> Shift A...
  * - Guards are staggered across 7 off-day cohorts so workforce is balanced every day.
  */
-export function calculateGuardCycle(guardIndex: number, targetDateStr: string): {
+function calculateGuardCycle(guardIndex: number, targetDateStr: string): {
   isOffDay: boolean;
   activeShift: Shift;
   cycleWeek: 1 | 2;

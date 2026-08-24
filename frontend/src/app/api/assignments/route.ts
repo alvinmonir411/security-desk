@@ -68,6 +68,9 @@ export async function POST(req: Request) {
       },
     });
 
+    const isOt = Boolean(body.isOvertime);
+    const otHours = Number(body.otHours) || (isOt ? 12 : 0);
+
     // Create new assignment
     const assignment = await prisma.assignment.create({
       data: {
@@ -75,6 +78,8 @@ export async function POST(req: Request) {
         postId,
         shift: shift === 'DAY' ? Shift.DAY : Shift.NIGHT,
         date: assignmentDate,
+        isOvertime: isOt,
+        otHours: otHours,
         status: AssignmentStatus.CONFIRMED,
       },
       include: {
