@@ -1,0 +1,106 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Location {
+  id           String   @id @default(cuid())
+  name         String
+  address      String?
+  supervisorId String?
+  posts        Post[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Post {
+  id            String       @id @default(cuid())
+  locationId    String
+  location      Location     @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  name          String
+  requiredDay   Int          @default(0)
+  requiredNight Int          @default(0)
+  type          PostType     @default(ROTATING)
+  assignments   Assignment[]
+  fixedGuards   Guard[]      @relation("FixedPost")
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+}
+
+enum PostType {
+  FIXED
+  ROTATING
+}
+
+model Guard {
+  id          String       @id @default(cuid())
+  name        String
+  phone       String?
+  nid         String?
+  address     String?
+  joinDate    DateTime?
+  status      GuardStatus  @default(ACTIVE)
+  fixedPostId String?
+  fixedPost   Post?        @relation("FixedPost", fields: [fixedPostId], references: [id], onDelete: SetNull)
+  fixedShift  Shift?
+  assignments Assignment[]
+  leaves      Leave[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+enum GuardStatus {
+  ACTIVE
+  ON_LEAVE
+  ABSENT
+  INACTIVE
+}
+
+model Assignment {
+  id        String           @id @default(cuid())
+  guardId   String
+  guard     Guard            @relation(fields: [guardId], references: [id], onDelete: Cascade)
+  postId    String
+  post      Post             @relation(fields: [postId], references: [id], onDelete: Cascade)
+  date      DateTime
+  shift     Shift
+  status    AssignmentStatus @default(CONFIRMED)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@index([date])
+  @@index([guardId, date])
+  @@index([postId, date])
+}
+
+enum Shift {
+  DAY
+  NIGHT
+}
+
+enum AssignmentStatus {
+  DRAFT
+  CONFIRMED
+  REMOVED
+}
+
+model Leave {
+  id        String      @id @default(cuid())
+  guardId   String
+  guard     Guard       @relation(fields: [guardId], references: [id], onDelete: Cascade)
+  startDate DateTime
+  endDate   DateTime
+  type      String
+  status    LeaveStatus @default(PENDING)
+  createdAt DateTime    @default(now())
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
