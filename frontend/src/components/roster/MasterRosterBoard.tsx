@@ -766,8 +766,13 @@ export const MasterRosterBoard: React.FC = () => {
             </div>
 
             <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1 text-xs">
-              {availableGuardsList.slice(0, 25).map((guard) => {
+              {availableGuardsList.slice(0, 30).map((guard, idx) => {
                 const isAlreadyAssigned = assignedGuardIdsToday.has(guard.id);
+                // Calculate 6-day alternating cycle (even index = Day cycle, odd index = Night cycle)
+                const isDayCycle = idx % 2 === 0;
+                const isShiftMismatch =
+                  (activeSlotModal.shift === 'DAY' && !isDayCycle) ||
+                  (activeSlotModal.shift === 'NIGHT' && isDayCycle);
 
                 return (
                   <div
@@ -775,6 +780,8 @@ export const MasterRosterBoard: React.FC = () => {
                     className={`flex items-center justify-between p-2.5 rounded-xl border transition ${
                       isAlreadyAssigned
                         ? 'bg-slate-950/40 border-slate-850 opacity-60'
+                        : isShiftMismatch
+                        ? 'bg-slate-950/80 border-slate-850 opacity-80'
                         : 'bg-slate-950 border-slate-800 hover:border-sky-500 cursor-pointer'
                     }`}
                   >
@@ -783,14 +790,37 @@ export const MasterRosterBoard: React.FC = () => {
                         <span>{guard.name}</span>
                         {guard.fixedPostId && <span className="text-[9px] text-emerald-400">🔒 Fixed</span>}
                       </div>
-                      <div className="text-[10px] text-slate-400">
-                        {guard.phone} • Streak: {guard.dutyStreak}/6 days
+                      <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
+                        <span>Streak: {guard.dutyStreak}/6</span>
+                        <span>•</span>
+                        {isDayCycle ? (
+                          <span className="text-amber-400 font-semibold flex items-center gap-0.5">
+                            ☀️ 6-Day Cycle: Day Shift
+                          </span>
+                        ) : (
+                          <span className="text-indigo-400 font-semibold flex items-center gap-0.5">
+                            🌙 6-Day Cycle: Night Shift
+                          </span>
+                        )}
                       </div>
                     </div>
 
                     <button
                       disabled={isAlreadyAssigned}
                       onClick={async () => {
+                        if (isShiftMismatch) {
+                          const confirmSwap = window.confirm(
+                            `⚠️ Shift Rotation Rule Notice:\n\n${guard.name} is currently in a 6-day ${
+                              isDayCycle ? 'Day' : 'Night'
+                            } Shift cycle. Shift normally alternates to ${
+                              activeSlotModal.shift
+                            } only after their scheduled weekly Off-Day.\n\nDo you want to override and assign to ${
+                              activeSlotModal.shift
+                            } Shift today?`
+                          );
+                          if (!confirmSwap) return;
+                        }
+
                         await assignGuardToPost(
                           guard.id,
                           activeSlotModal.locationId,
@@ -803,10 +833,12 @@ export const MasterRosterBoard: React.FC = () => {
                       className={`px-3 py-1 rounded-lg text-xs font-bold ${
                         isAlreadyAssigned
                           ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                          : isShiftMismatch
+                          ? 'bg-amber-950 text-amber-300 border border-amber-800 hover:bg-amber-900 cursor-pointer'
                           : 'bg-sky-500 hover:bg-sky-400 text-slate-950 cursor-pointer shadow'
                       }`}
                     >
-                      {isAlreadyAssigned ? 'Assigned' : 'Select'}
+                      {isAlreadyAssigned ? 'Assigned' : isShiftMismatch ? 'Override' : 'Select'}
                     </button>
                   </div>
                 );
