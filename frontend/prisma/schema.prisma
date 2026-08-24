@@ -49,6 +49,7 @@ model Guard {
   fixedShift  Shift?
   assignments Assignment[]
   leaves      Leave[]
+  overtimeReqs OvertimeRequest[]
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 }
@@ -61,16 +62,18 @@ enum GuardStatus {
 }
 
 model Assignment {
-  id        String           @id @default(cuid())
-  guardId   String
-  guard     Guard            @relation(fields: [guardId], references: [id], onDelete: Cascade)
-  postId    String
-  post      Post             @relation(fields: [postId], references: [id], onDelete: Cascade)
-  date      DateTime
-  shift     Shift
-  status    AssignmentStatus @default(CONFIRMED)
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
+  id         String           @id @default(cuid())
+  guardId    String
+  guard      Guard            @relation(fields: [guardId], references: [id], onDelete: Cascade)
+  postId     String
+  post       Post             @relation(fields: [postId], references: [id], onDelete: Cascade)
+  date       DateTime
+  shift      Shift
+  isOvertime Boolean          @default(false)
+  otHours    Int              @default(0)
+  status     AssignmentStatus @default(CONFIRMED)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
 
   @@index([date])
   @@index([guardId, date])
@@ -86,6 +89,28 @@ enum AssignmentStatus {
   DRAFT
   CONFIRMED
   REMOVED
+}
+
+model OvertimeRequest {
+  id          String         @id @default(cuid())
+  guardId     String
+  guard       Guard          @relation(fields: [guardId], references: [id], onDelete: Cascade)
+  postId      String
+  date        DateTime
+  shift       Shift
+  hours       Int            @default(12)
+  reason      String?
+  requestedBy String         @default("MANAGER")
+  approvedBy  String?
+  status      OvertimeStatus @default(PENDING)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+enum OvertimeStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 model Leave {

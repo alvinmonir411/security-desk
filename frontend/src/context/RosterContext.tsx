@@ -64,6 +64,31 @@ export interface LeaveReq {
   rejectionReason?: string;
 }
 
+export interface OvertimeReq {
+  id: string;
+  guardId: string;
+  guardName: string;
+  postId: string;
+  postName?: string;
+  locationName?: string;
+  date: string;
+  shift: 'DAY' | 'NIGHT';
+  hours: number;
+  reason?: string;
+  requestedBy: string;
+  approvedBy?: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  createdAt: string;
+}
+
+export interface UserSession {
+  id: string;
+  email: string;
+  name: string;
+  role: RoleType;
+  title: string;
+}
+
 export interface ToastItem {
   id: string;
   message: string;
@@ -77,8 +102,11 @@ interface RosterContextType {
   nextDay: () => void;
   goToToday: () => void;
 
+  currentUser: UserSession | null;
   currentRole: RoleType;
   setCurrentRole: (role: RoleType) => void;
+  loginUser: (role: RoleType, email?: string, password?: string) => void;
+  logoutUser: () => void;
 
   locations: SystemLocation[];
   addLocation: (loc: Omit<SystemLocation, 'id' | 'posts'>) => Promise<void>;
@@ -103,6 +131,11 @@ interface RosterContextType {
   leaveRequests: LeaveReq[];
   approveLeave: (id: string) => Promise<void>;
   rejectLeave: (id: string, reason: string) => Promise<void>;
+
+  overtimeRequests: OvertimeReq[];
+  requestOvertime: (guardId: string, postId: string, shift: 'DAY' | 'NIGHT', hours?: number, reason?: string) => Promise<void>;
+  approveOvertime: (id: string) => Promise<void>;
+  rejectOvertime: (id: string) => Promise<void>;
 
   kpi: {
     workforce: number;
@@ -130,17 +163,50 @@ interface RosterContextType {
 const RosterContext = createContext<RosterContextType | undefined>(undefined);
 
 export const RosterProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentDate, setCurrentDate] = useState('2026-08-24');
+  const [currentUser, setCurrentUser] = useState<UserSession | null>({
+    id: 'USR-MGR-01',
+    email: 'manager@shieldops.com',
+    name: 'Md. Imran Hossain',
+    role: 'MANAGER',
+    title: 'Operations Manager',
+  });
   const [currentRole, setCurrentRole] = useState<RoleType>('MANAGER');
   const [activeNav, setActiveNav] = useState('dashboard');
   const [selectedLocationFilter, setSelectedLocationFilter] = useState('ALL');
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-
+  const [currentDate, setCurrentDate] = useState<string>('2026-08-24');
   const [locations, setLocations] = useState<SystemLocation[]>([]);
   const [guards, setGuards] = useState<GuardProfile[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<LeaveReq[]>([]);
+  const [overtimeRequests, setOvertimeRequests] = useState<OvertimeReq[]>([]);
+
+  const loginUser = (role: RoleType, email?: string, password?: string) => {
+    const roleProfiles: Record<RoleType, { name: string; email: string; title: string }> = {
+      DGM: { name: 'Brig. Gen. (Retd) Anwar Hossain', email: 'dgm@shieldops.com', title: 'Deputy General Manager (Chief Security)' },
+      AGM: { name: 'Major (Retd) M. A. Jalil', email: 'agm@shieldops.com', title: 'Assistant General Manager (Operations)' },
+      MANAGER: { name: 'Md. Imran Hossain', email: 'manager@shieldops.com', title: 'Security Operations Manager' },
+      SUPERVISOR: { name: 'Md. Delwar Hossain', email: 'supervisor@shieldops.com', title: 'Senior Field Supervisor' },
+      SECURITY_GUARD: { name: 'Abdul Mahfuz Islam', email: 'guard@shieldops.com', title: 'Senior Security Guard (G-001)' },
+    };
+
+    const prof = roleProfiles[role];
+    setCurrentUser({
+      id: `USR-${role}-01`,
+      email: email || prof.email,
+      name: prof.name,
+      role,
+      title: prof.title,
+    });
+    setCurrentRole(role);
+    showToast(`Logged in as ${prof.name} (${role})`);
+  };
+
+  const logoutUser = () => {
+    setCurrentUser(null);
+    showToast('Logged out successfully.');
+  };
 
   // Fetch all live data from Neon Postgres via Next.js API routes
   const refreshData = useCallback(async () => {
@@ -226,6 +292,27 @@ export const RosterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           status: l.status,
         }));
         setLeaveRequests(mappedLeaves);
+      }
+
+      // 5. Fetch Overtime Requests
+      const otRes = await fetch('/api/overtime');
+      const otJson = await otRes.json();
+      if (otJson.success && otJson.data) {
+        const mappedOT: OvertimeReq[] = otJson.data.map((ot: any) => ({
+          id: ot.id,
+          guardId: ot.guardId,
+          guardName: ot.guard?.name || 'Guard',
+          postId: ot.postId,
+          date: ot.date ? ot.date.split('T')[0] : currentDate,
+          shift: ot.shift,
+          hours: ot.hours || 12,
+          reason: ot.reason,
+          requestedBy: ot.requestedBy,
+          approvedBy: ot.approvedBy,
+          status: ot.status,
+          createdAt: ot.createdAt,
+        }));
+        setOvertimeRequests(mappedOT);
       }
     } catch (err) {
       console.error('Error fetching database data:', err);
@@ -579,6 +666,84 @@ export const RosterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
+  const requestOvertime = async (
+    guardId: string,
+    postId: string,
+    shift: 'DAY' | 'NIGHT',
+    hours: number = 12,
+    reason?: string
+  ) => {
+    try {
+      const res = await fetch('/api/overtime', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          guardId,
+          postId,
+          shift,
+          hours,
+          date: currentDate,
+          reason: reason || 'Emergency deployment on scheduled weekly rest day',
+          requestedBy: currentUser?.title || currentRole,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        await refreshData();
+        showToast(`⚡ Overtime request submitted for AGM/DGM approval!`);
+      } else {
+        showToast(`Request failed: ${data.error}`);
+      }
+    } catch (err: any) {
+      console.error('Error submitting overtime request:', err);
+      showToast(`Error: ${err.message}`);
+    }
+  };
+
+  const approveOvertime = async (id: string) => {
+    try {
+      const res = await fetch('/api/overtime', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id,
+          action: 'APPROVE',
+          approvedBy: currentUser?.name || `${currentRole} Approver`,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        await refreshData();
+        showToast(`✅ Overtime approved & guard deployed to post!`);
+      }
+    } catch (err: any) {
+      console.error('Error approving overtime:', err);
+      showToast(`Error: ${err.message}`);
+    }
+  };
+
+  const rejectOvertime = async (id: string) => {
+    try {
+      const res = await fetch('/api/overtime', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id,
+          action: 'REJECT',
+          approvedBy: currentUser?.name || `${currentRole} Reviewer`,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        await refreshData();
+        showToast('Overtime request rejected.');
+      }
+    } catch (err: any) {
+      console.error('Error rejecting overtime:', err);
+      showToast(`Error: ${err.message}`);
+    }
+  };
+
   return (
     <RosterContext.Provider
       value={{
@@ -587,8 +752,11 @@ export const RosterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         prevDay,
         nextDay,
         goToToday,
+        currentUser,
         currentRole,
         setCurrentRole,
+        loginUser,
+        logoutUser,
         locations,
         addLocation,
         updateLocation,
@@ -608,6 +776,10 @@ export const RosterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         leaveRequests,
         approveLeave,
         rejectLeave,
+        overtimeRequests,
+        requestOvertime,
+        approveOvertime,
+        rejectOvertime,
         kpi,
         calculateScore,
         toasts,

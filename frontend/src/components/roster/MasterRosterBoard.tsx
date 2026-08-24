@@ -29,10 +29,16 @@ export const MasterRosterBoard: React.FC = () => {
     assignments,
     currentDate,
     setCurrentDate,
+    currentRole,
+    currentUser,
     assignGuardToPost,
     removeAssignment,
     refreshData,
     showToast,
+    overtimeRequests,
+    requestOvertime,
+    approveOvertime,
+    rejectOvertime,
     kpi,
   } = useRoster();
 
@@ -40,6 +46,14 @@ export const MasterRosterBoard: React.FC = () => {
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+
+  // Overtime Request Modal State
+  const [otModalGuard, setOtModalGuard] = useState<any | null>(null);
+  const [otPostId, setOtPostId] = useState('');
+  const [otShift, setOtShift] = useState<'DAY' | 'NIGHT'>('DAY');
+  const [otHours, setOtHours] = useState(12);
+  const [otReason, setOtReason] = useState('Emergency replacement on weekly rest day');
+  const [isSubmittingOt, setIsSubmittingOt] = useState(false);
 
   // Quick slot assignment popover state
   const [activeSlotModal, setActiveSlotModal] = useState<{
@@ -1045,6 +1059,18 @@ export const MasterRosterBoard: React.FC = () => {
                         <span>Base: {loc?.name || 'Central'}</span>
                         {fixedPost && <span className="text-emerald-400">🔒 {fixedPost.name}</span>}
                       </div>
+
+                      {/* ⚡ Deploy Overtime Button */}
+                      <button
+                        onClick={() => {
+                          setOtModalGuard(guard);
+                          const defaultLoc = loc || locations[0];
+                          setOtPostId(fixedPost?.id || defaultLoc?.posts[0]?.id || '');
+                        }}
+                        className="w-full mt-2 py-1.5 px-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 transition shadow"
+                      >
+                        <span>⚡ Deploy on Overtime (OT)</span>
+                      </button>
                     </div>
                   );
                 })}
@@ -1061,6 +1087,141 @@ export const MasterRosterBoard: React.FC = () => {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ⚡ Overtime Deployment & Approval Modal */}
+      {otModalGuard && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              try {
+                setIsSubmittingOt(true);
+                // If user is AGM or DGM, direct instant approval or submission
+                if (currentRole === 'AGM' || currentRole === 'DGM') {
+                  // Direct deployment with OT
+                  await requestOvertime(otModalGuard.id, otPostId, otShift, Number(otHours), otReason);
+                  showToast(`⚡ Overtime duty approved & deployed by ${currentRole}!`);
+                } else {
+                  // Submit for AGM/DGM approval
+                  await requestOvertime(otModalGuard.id, otPostId, otShift, Number(otHours), otReason);
+                  showToast(`📨 Overtime request sent to AGM/DGM for approval!`);
+                }
+                setOtModalGuard(null);
+                setIsOffDayModalOpen(false);
+              } catch (err: any) {
+                showToast(`Error: ${err.message}`);
+              } finally {
+                setIsSubmittingOt(false);
+              }
+            }}
+            className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl text-white text-xs"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div>
+                <h3 className="text-sm font-black text-amber-400 flex items-center gap-1.5">
+                  <span>⚡ Deploy Off-Day Guard on Overtime</span>
+                </h3>
+                <p className="text-[11px] text-slate-300 font-bold mt-0.5">
+                  Guard: {otModalGuard.name} ({otModalGuard.badgeNumber})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setOtModalGuard(null)}
+                className="p-1 text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-800/80 text-amber-300 text-[11px] space-y-1">
+              <div className="font-bold flex items-center gap-1">
+                <span>⚠️ AGM / DGM Approval Policy:</span>
+              </div>
+              <p className="text-slate-300">
+                This guard is on scheduled weekly off-day. Assigning duty requires AGM or DGM authorization and will be counted as <strong>Overtime (OT) Hours</strong>.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-slate-400 mb-1 font-semibold">Select Duty Post:</label>
+                <select
+                  value={otPostId}
+                  onChange={(e) => setOtPostId(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white font-bold outline-none"
+                >
+                  {allPostsList.map(({ post, location }) => (
+                    <option key={post.id} value={post.id}>
+                      {post.name} — {location.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Shift:</label>
+                  <select
+                    value={otShift}
+                    onChange={(e) => setOtShift(e.target.value as 'DAY' | 'NIGHT')}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white font-bold outline-none"
+                  >
+                    <option value="DAY">☀️ Day Shift (12h)</option>
+                    <option value="NIGHT">🌙 Night Shift (12h)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">OT Duration:</label>
+                  <select
+                    value={otHours}
+                    onChange={(e) => setOtHours(Number(e.target.value))}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-amber-400 font-black outline-none"
+                  >
+                    <option value={4}>4 Hours (Half OT)</option>
+                    <option value={6}>6 Hours (Mid OT)</option>
+                    <option value={8}>8 Hours (Standard OT)</option>
+                    <option value={12}>12 Hours (Full Shift OT)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1 font-semibold">Deployment Reason:</label>
+                <input
+                  type="text"
+                  value={otReason}
+                  onChange={(e) => setOtReason(e.target.value)}
+                  placeholder="e.g. Unscheduled staff shortage at Cargo Gate"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white font-medium outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setOtModalGuard(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmittingOt}
+                className="px-5 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black rounded-xl shadow-lg transition"
+              >
+                {isSubmittingOt
+                  ? 'Submitting...'
+                  : currentRole === 'AGM' || currentRole === 'DGM'
+                  ? '⚡ [ Approve & Deploy OT ]'
+                  : '📨 [ Submit for AGM/DGM Approval ]'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </div>
