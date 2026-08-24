@@ -112,11 +112,10 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
               <button
                 key={item.id}
                 onClick={() => setActiveNav(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold transition ${
-                  isActive
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold transition ${isActive
                     ? 'bg-sky-500/10 text-sky-400 border border-sky-500/30 font-bold'
                     : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-                }`}
+                  }`}
               >
                 <Icon className="w-4 h-4 flex-shrink-0" />
                 <span className="truncate">{item.label}</span>
