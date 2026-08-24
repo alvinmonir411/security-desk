@@ -30,7 +30,9 @@ import {
 } from 'lucide-react';
 
 export const GuardMobilePortal: React.FC = () => {
-  const { currentUser, currentDate, guards, assignments, locations, applyLeave, leaveRequests, showToast } = useRoster();
+  const { currentUser, currentDate, guards, assignments, locations, applyLeave, leaveRequests, showToast, updateGuardProfile } = useRoster();
+  const [isProfileEditorOpen, setIsProfileEditorOpen] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
 
   // Find the live matching guard entity from database state
   const guardProfile = useMemo(() => {
@@ -409,6 +411,24 @@ export const GuardMobilePortal: React.FC = () => {
         </div>
       </div>
 
+      <section className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="font-black text-slate-900">My HR Profile</h2>
+            <p className="text-xs text-slate-500">Your confidential personnel record</p>
+          </div>
+          <button onClick={() => setIsProfileEditorOpen(true)} className="text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-xl">View / Update my profile</button>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+          <div><span className="text-slate-400 block">Emergency contact</span><strong>{guardProfile.emergencyContactName || 'Not recorded'}</strong><span className="block text-slate-500">{guardProfile.emergencyContactRelation || ''} {guardProfile.emergencyContactPhone || ''}</span></div>
+          <div><span className="text-slate-400 block">Medical note</span><strong>{guardProfile.medicalNotes || 'No note recorded'}</strong></div>
+          <div><span className="text-slate-400 block">Payroll ID</span><strong>{guardProfile.payrollId || 'Not recorded'}</strong></div>
+          <div><span className="text-slate-400 block">Training / licence</span><strong>{guardProfile.trainingCertifications || 'Not recorded'}</strong><span className="block text-slate-500">{guardProfile.licenseExpiry ? `Expires ${guardProfile.licenseExpiry}` : ''}</span></div>
+        </div>
+      </section>
+
+      {isProfileEditorOpen && <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4"><form onSubmit={async e => { e.preventDefault(); setIsSavingProfile(true); try { const f = new FormData(e.currentTarget); await updateGuardProfile(guardProfile.id, Object.fromEntries(f.entries())); showToast('Your profile has been updated.'); setIsProfileEditorOpen(false); } catch (err) { showToast(err instanceof Error ? err.message : 'Profile update failed.'); } finally { setIsSavingProfile(false); } }} className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white rounded-3xl p-6 space-y-4 text-slate-800"><div className="flex justify-between items-center"><div><h2 className="font-black text-lg">My HR Profile</h2><p className="text-xs text-slate-500">Update your personal and emergency contact information.</p></div><button type="button" onClick={() => setIsProfileEditorOpen(false)} className="text-slate-500">Close</button></div><div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">{[['phone','Mobile number',guardProfile.phone],['address','Home address',guardProfile.address],['emergencyContactName','Emergency contact name',guardProfile.emergencyContactName],['emergencyContactRelation','Relationship',guardProfile.emergencyContactRelation],['emergencyContactPhone','Emergency contact phone',guardProfile.emergencyContactPhone],['medicalNotes','Medical note',guardProfile.medicalNotes],['bankName','Bank name',guardProfile.bankName],['bankAccountNo','Bank account number',guardProfile.bankAccountNo],['payrollId','Payroll ID',guardProfile.payrollId],['trainingCertifications','Training / certifications',guardProfile.trainingCertifications]].map(([name,label,value]) => <label key={name as string} className="font-bold text-slate-600">{label}<input name={name as string} defaultValue={(value as string) || ''} className="mt-1 w-full rounded-xl border border-slate-300 p-2.5 font-normal outline-none focus:border-emerald-500" /></label>)}</div><p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 p-3 rounded-xl">NID, payroll, bank and medical information are confidential. DGM/HR can review these records.</p><button disabled={isSavingProfile} className="w-full py-3 rounded-xl bg-emerald-600 text-white font-black">{isSavingProfile ? 'Saving…' : 'Save my profile'}</button></form></div>}
+
       {/* 2. MAIN 3-COLUMN ROW (Attendance Clock + Real-Time Calendar + Notice Board) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Attendance & Live Punch In/Out */}
@@ -633,7 +653,7 @@ export const GuardMobilePortal: React.FC = () => {
       </div>
 
       {/* 3. BOTTOM QUICK ACTION CARDS */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
         {/* Card 1: Leave Application (Real-time count & + Apply Leave) */}
         <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm space-y-3 flex flex-col justify-between">
           <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-bold text-slate-600">
@@ -812,6 +832,7 @@ export const GuardMobilePortal: React.FC = () => {
                   <option value="Casual Leave (CL)">Casual Leave (CL)</option>
                   <option value="Medical Leave (ML)">Medical Leave (ML)</option>
                   <option value="Annual Earned Leave (AL)">Annual Earned Leave (AL)</option>
+                  <option value="Unpaid Leave (UL)">Unpaid Leave (UL)</option>
                   <option value="Emergency Family Leave">Emergency Family Leave</option>
                   <option value="Compensatory Rest Off">Compensatory Rest Off</option>
                 </select>

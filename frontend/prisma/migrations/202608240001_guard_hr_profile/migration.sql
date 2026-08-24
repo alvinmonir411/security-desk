@@ -1,0 +1,16 @@
+ALTER TABLE "Guard"
+  ADD COLUMN IF NOT EXISTS "email" TEXT,
+  ADD COLUMN IF NOT EXISTS "dateOfBirth" TIMESTAMP(3),
+  ADD COLUMN IF NOT EXISTS "gender" TEXT,
+  ADD COLUMN IF NOT EXISTS "designation" TEXT,
+  ADD COLUMN IF NOT EXISTS "employmentType" TEXT DEFAULT 'Permanent',
+  ADD COLUMN IF NOT EXISTS "bloodGroup" TEXT,
+  ADD COLUMN IF NOT EXISTS "emergencyContactName" TEXT,
+  ADD COLUMN IF NOT EXISTS "emergencyContactPhone" TEXT,
+  ADD COLUMN IF NOT EXISTS "emergencyContactRelation" TEXT,
+  ADD COLUMN IF NOT EXISTS "medicalNotes" TEXT,
+  ADD COLUMN IF NOT EXISTS "bankName" TEXT,
+  ADD COLUMN IF NOT EXISTS "bankAccountNo" TEXT,
+  ADD COLUMN IF NOT EXISTS "payrollId" TEXT,
+  ADD COLUMN IF NOT EXISTS "trainingCertifications" TEXT,
+  ADD COLUMN IF NOT EXISTS "licenseExpiry" TIMESTAMP(3);

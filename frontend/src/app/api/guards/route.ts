@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '../../../lib/prisma';
 import { GuardStatus } from '@prisma/client';
+import { requireRole } from '../../../lib/auth';
 
 export async function GET() {
+  const auth = await requireRole('SECURITY_GUARD', 'SUPERVISOR', 'MANAGER', 'AGM', 'DGM');
+  if (auth.response) return auth.response;
   try {
     const guards = await prisma.guard.findMany({
       include: {
@@ -24,7 +27,7 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { name, phone, nid, address, fixedPostId, status } = body;
+    const { name, phone, nid, address, fixedPostId, status, ...profile } = body;
 
     const guard = await prisma.guard.create({
       data: {
@@ -35,7 +38,8 @@ export async function POST(req: Request) {
         fixedPostId: fixedPostId || null,
         status: status ? (status as GuardStatus) : GuardStatus.ACTIVE,
         joinDate: new Date(),
-      },
+        ...(profile as any),
+      } as any,
     });
 
     return NextResponse.json({ success: true, data: guard });
@@ -48,15 +52,42 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   try {
     const body = await req.json();
-    const { id, fixedPostId, status, address, phone } = body;
+    const {
+      id,
+      fixedPostId,
+      status,
+      address,
+      phone,
+      disciplinaryNote,
+      suspensionEndDate,
+      absentStartDate,
+      absentEndDate,
+      disciplinaryActionBy,
+      medicalNotes,
+      ...profile
+    } = body;
 
     if (!id) return NextResponse.json({ success: false, error: 'Missing guard id' }, { status: 400 });
 
     const updateData: any = {};
     if (fixedPostId !== undefined) updateData.fixedPostId = fixedPostId;
-    if (status !== undefined) updateData.status = status as GuardStatus;
+    if (status !== undefined) {
+      updateData.status = status === 'SUSPENDED' ? 'INACTIVE' : (status as GuardStatus);
+    }
     if (address !== undefined) updateData.address = address;
     if (phone !== undefined) updateData.phone = phone;
+
+    // Safely store or clear disciplinary note in medicalNotes
+    if (disciplinaryNote !== undefined) {
+      if (!disciplinaryNote || disciplinaryNote.startsWith('[ACTIVE]')) {
+        updateData.medicalNotes = null;
+      } else {
+        const endStr = suspensionEndDate ? ` | Ends: ${typeof suspensionEndDate === 'string' ? suspensionEndDate.split('T')[0] : ''}` : '';
+        updateData.medicalNotes = `${disciplinaryNote}${endStr}`;
+      }
+    } else if (medicalNotes !== undefined) {
+      updateData.medicalNotes = medicalNotes;
+    }
 
     const updated = await prisma.guard.update({
       where: { id },

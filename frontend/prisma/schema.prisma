@@ -17,6 +17,16 @@ model Location {
   updatedAt    DateTime @updatedAt
 }
 
+model LeavePolicy {
+  id          String   @id @default("default")
+  year        Int
+  casualDays  Int      @default(14)
+  sickDays    Int      @default(14)
+  unpaidDays  Int      @default(36)
+  earnedDays  Int      @default(18)
+  updatedAt   DateTime @updatedAt
+}
+
 model Post {
   id            String       @id @default(cuid())
   locationId    String
@@ -42,8 +52,28 @@ model Guard {
   phone       String?
   nid         String?
   address     String?
+  email       String?
+  dateOfBirth DateTime?
+  gender      String?
+  designation String?
+  employmentType String? @default("Permanent")
+  bloodGroup  String?
+  emergencyContactName String?
+  emergencyContactPhone String?
+  emergencyContactRelation String?
+  medicalNotes String?
+  bankName String?
+  bankAccountNo String?
+  payrollId String?
+  trainingCertifications String?
+  licenseExpiry DateTime?
   joinDate    DateTime?
   status      GuardStatus  @default(ACTIVE)
+  disciplinaryNote String?
+  suspensionEndDate DateTime?
+  absentStartDate DateTime?
+  absentEndDate DateTime?
+  disciplinaryActionBy String?
   fixedPostId String?
   fixedPost   Post?        @relation("FixedPost", fields: [fixedPostId], references: [id], onDelete: SetNull)
   fixedShift  Shift?
@@ -58,6 +88,7 @@ enum GuardStatus {
   ACTIVE
   ON_LEAVE
   ABSENT
+  SUSPENDED
   INACTIVE
 }
 

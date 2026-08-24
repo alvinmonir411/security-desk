@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useRoster } from '../../context/RosterContext';
+import { useRoster, GuardProfile } from '../../context/RosterContext';
 import {
   Check,
   XCircle,
@@ -13,18 +13,51 @@ import {
   ArrowRight,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   X,
   Send,
 } from 'lucide-react';
+import { DisciplinaryModal } from '../roster/DisciplinaryModal';
 
 export const LeaveAttendancePage: React.FC = () => {
-  const { leaveRequests, guards, approveLeave, rejectLeave, applyLeave, currentRole, currentUser, currentDate } = useRoster();
+  const {
+    leaveRequests,
+    guards,
+    assignments,
+    locations,
+    approveLeave,
+    rejectLeave,
+    applyLeave,
+    markGuardAbsent,
+    applyDisciplinaryAction,
+    currentRole,
+    currentUser,
+    currentDate,
+  } = useRoster();
 
   const isGuard = currentRole === 'SECURITY_GUARD';
 
-  const [activeTab, setActiveTab] = useState<'QUEUE' | 'APPROVED' | 'REJECTED'>('QUEUE');
+  const [activeTab, setActiveTab] = useState<'QUEUE' | 'APPROVED' | 'REJECTED' | 'ATTENDANCE'>('QUEUE');
   const [rejectingReqId, setRejectingReqId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
+  const [attendanceSearch, setAttendanceSearch] = useState('');
+  const [attendanceFilter, setAttendanceFilter] = useState<'ALL' | 'ABSENT' | 'SUSPENDED' | 'ON_LEAVE' | 'ON_DUTY' | 'OFF_DAY'>('ALL');
+  const [disciplinaryGuard, setDisciplinaryGuard] = useState<GuardProfile | null>(null);
+
+  // Attendance metrics calculation
+  const assignedGuardIdsSet = new Set(
+    assignments
+      .filter((a) => a.date === currentDate && a.status === 'confirmed')
+      .map((a) => a.guardId)
+  );
+
+  const onDutyCount = assignedGuardIdsSet.size;
+  const onLeaveCount = guards.filter((g) => g.status === 'ON_LEAVE').length;
+  const absentCount = guards.filter((g) => g.status === 'ABSENT').length;
+  const suspendedCount = guards.filter((g) => g.status === 'SUSPENDED').length;
+  const standbyCount = guards.filter(
+    (g) => g.status === 'ACTIVE' && g.dutyStreak >= 6 && !assignedGuardIdsSet.has(g.id)
+  ).length;
 
   // Apply Leave Modal State (for Guards, Supervisors, Managers, AGMs, DGMs)
   const [isApplyModalOpen, setIsApplyModalOpen] = useState(false);
@@ -109,7 +142,7 @@ export const LeaveAttendancePage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
         <div>
           <h2 className="text-xl font-black text-white tracking-wide flex items-center gap-2.5">
-            <span>LEAVE & ATTENDANCE HIERARCHY</span>
+            <span>LEAVE & ATTENDANCE MANAGEMENT</span>
             {isGuard ? (
               <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-sky-950 text-sky-400 border border-sky-800">
                 My Portal
@@ -122,12 +155,12 @@ export const LeaveAttendancePage: React.FC = () => {
           </h2>
           <p className="text-xs text-slate-400 mt-1">
             {isGuard
-              ? 'Track your personal leave applications through the 3-tier management approval sequence.'
-              : 'Sequential Approval Queue: Guard Application ➔ Supervisor ➔ Operations Manager ➔ AGM/DGM Authorization.'}
+              ? 'Track your personal leave applications and view company leave balances.'
+              : 'Monitor live workforce attendance, mark absent personnel, and process multi-tier leave approval queue.'}
           </p>
         </div>
 
-        {/* Apply Leave Button (Always available for Guard or Supervisors) */}
+        {/* Apply Leave Button */}
         <div className="flex items-center gap-3">
           <button
             onClick={() => setIsApplyModalOpen(true)}
@@ -138,65 +171,106 @@ export const LeaveAttendancePage: React.FC = () => {
         </div>
       </div>
 
-      {/* 4-Step Approval Sequence Visual Legend */}
-      <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-md space-y-2">
-        <div className="text-[11px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-2">
-          <ShieldCheck className="w-4 h-4 text-sky-400" />
-          <span>Sequential 4-Tier Approval Flow:</span>
+      {/* 📊 Live Workforce Attendance Summary Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 space-y-1 shadow">
+          <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">👥 Total Force</div>
+          <div className="text-xl font-black text-white">{guards.length}</div>
+          <div className="text-[10px] text-slate-500">Active personnel</div>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 text-xs">
-          <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center gap-2">
-            <span className="w-5 h-5 rounded-full bg-sky-500/20 text-sky-400 font-bold text-[10px] flex items-center justify-center">1</span>
-            <div>
-              <div className="font-bold text-slate-200 text-[11px]">Guard Applied</div>
-              <div className="text-[10px] text-slate-500">Initial submission</div>
-            </div>
-          </div>
 
-          <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center gap-2">
-            <span className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 font-bold text-[10px] flex items-center justify-center">2</span>
-            <div>
-              <div className="font-bold text-amber-300 text-[11px]">Supervisor Review</div>
-              <div className="text-[10px] text-slate-500">Field recommendation</div>
-            </div>
-          </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 space-y-1 shadow">
+          <div className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">⚡ On Duty</div>
+          <div className="text-xl font-black text-emerald-400">{onDutyCount}</div>
+          <div className="text-[10px] text-emerald-500/80">Assigned on post</div>
+        </div>
 
-          <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center gap-2">
-            <span className="w-5 h-5 rounded-full bg-purple-500/20 text-purple-400 font-bold text-[10px] flex items-center justify-center">3</span>
-            <div>
-              <div className="font-bold text-purple-300 text-[11px]">Manager Endorsement</div>
-              <div className="text-[10px] text-slate-500">Operations review</div>
-            </div>
-          </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 space-y-1 shadow">
+          <div className="text-[10px] text-amber-400 font-bold uppercase tracking-wider">🏖️ On Leave</div>
+          <div className="text-xl font-black text-amber-400">{onLeaveCount}</div>
+          <div className="text-[10px] text-amber-500/80">Approved leave</div>
+        </div>
 
-          <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center gap-2">
-            <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-[10px] flex items-center justify-center">4</span>
-            <div>
-              <div className="font-bold text-emerald-300 text-[11px]">AGM / DGM Final</div>
-              <div className="text-[10px] text-slate-500">Final authorization</div>
-            </div>
-          </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 space-y-1 shadow">
+          <div className="text-[10px] text-rose-400 font-bold uppercase tracking-wider">🚫 Absent</div>
+          <div className="text-xl font-black text-rose-400">{absentCount}</div>
+          <div className="text-[10px] text-rose-500/80">Unexcused / Missing</div>
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 space-y-1 shadow">
+          <div className="text-[10px] text-amber-500 font-bold uppercase tracking-wider">⚠️ Suspended</div>
+          <div className="text-xl font-black text-amber-500">{suspendedCount}</div>
+          <div className="text-[10px] text-amber-500/80">Disciplinary notice</div>
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 space-y-1 shadow">
+          <div className="text-[10px] text-sky-400 font-bold uppercase tracking-wider">🟢 Standby Pool</div>
+          <div className="text-xl font-black text-sky-400">{standbyCount}</div>
+          <div className="text-[10px] text-sky-500/80">Off-Day for OT</div>
         </div>
       </div>
 
-      {/* Tabs & Guard Filter */}
+      {/* 4-Step Approval Sequence Visual Legend (shown when viewing leave queue) */}
+      {activeTab !== 'ATTENDANCE' && (
+        <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-md space-y-2">
+          <div className="text-[11px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-sky-400" />
+            <span>Sequential 4-Tier Approval Flow:</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 text-xs">
+            <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-sky-500/20 text-sky-400 font-bold text-[10px] flex items-center justify-center">1</span>
+              <div>
+                <div className="font-bold text-slate-200 text-[11px]">Guard Applied</div>
+                <div className="text-[10px] text-slate-500">Initial submission</div>
+              </div>
+            </div>
+
+            <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 font-bold text-[10px] flex items-center justify-center">2</span>
+              <div>
+                <div className="font-bold text-amber-300 text-[11px]">Supervisor Review</div>
+                <div className="text-[10px] text-slate-500">Field recommendation</div>
+              </div>
+            </div>
+
+            <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-purple-500/20 text-purple-400 font-bold text-[10px] flex items-center justify-center">3</span>
+              <div>
+                <div className="font-bold text-purple-300 text-[11px]">Manager Endorsement</div>
+                <div className="text-[10px] text-slate-500">Operations review</div>
+              </div>
+            </div>
+
+            <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-[10px] flex items-center justify-center">4</span>
+              <div>
+                <div className="font-bold text-emerald-300 text-[11px]">AGM / DGM Final</div>
+                <div className="text-[10px] text-slate-500">Final authorization</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main Tabs Navigation */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-        <div className="flex gap-2 bg-slate-900 p-1.5 rounded-2xl border border-slate-800 text-xs font-semibold flex-1">
+        <div className="flex gap-2 bg-slate-900 p-1.5 rounded-2xl border border-slate-800 text-xs font-semibold flex-1 flex-wrap">
           <button
             onClick={() => setActiveTab('QUEUE')}
-            className={`flex-1 py-2 rounded-xl transition ${
+            className={`flex-1 min-w-[130px] py-2 px-3 rounded-xl transition ${
               activeTab === 'QUEUE'
                 ? 'bg-sky-500 text-slate-950 font-black shadow'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
             {isGuard
-              ? `My In-Progress Requests (${relevantRequests.filter((l) => l.status !== 'APPROVED' && l.status !== 'REJECTED').length})`
-              : `My Actionable Queue (${getFilteredList().length})`}
+              ? `My Requests (${relevantRequests.filter((l) => l.status !== 'APPROVED' && l.status !== 'REJECTED').length})`
+              : `Leave Queue (${getFilteredList().length})`}
           </button>
           <button
             onClick={() => setActiveTab('APPROVED')}
-            className={`flex-1 py-2 rounded-xl transition ${
+            className={`flex-1 min-w-[130px] py-2 px-3 rounded-xl transition ${
               activeTab === 'APPROVED'
                 ? 'bg-emerald-500 text-slate-950 font-black shadow'
                 : 'text-slate-400 hover:text-white'
@@ -206,7 +280,7 @@ export const LeaveAttendancePage: React.FC = () => {
           </button>
           <button
             onClick={() => setActiveTab('REJECTED')}
-            className={`flex-1 py-2 rounded-xl transition ${
+            className={`flex-1 min-w-[110px] py-2 px-3 rounded-xl transition ${
               activeTab === 'REJECTED'
                 ? 'bg-rose-500 text-slate-950 font-black shadow'
                 : 'text-slate-400 hover:text-white'
@@ -214,9 +288,19 @@ export const LeaveAttendancePage: React.FC = () => {
           >
             Rejected ({relevantRequests.filter((l) => l.status === 'REJECTED').length})
           </button>
+          <button
+            onClick={() => setActiveTab('ATTENDANCE')}
+            className={`flex-1 min-w-[180px] py-2 px-3 rounded-xl transition ${
+              activeTab === 'ATTENDANCE'
+                ? 'bg-gradient-to-r from-amber-500 to-rose-500 text-slate-950 font-black shadow'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            🚫 Attendance Register ({absentCount} Absent)
+          </button>
         </div>
 
-        {!isGuard && (
+        {!isGuard && activeTab !== 'ATTENDANCE' && (
           <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-2 rounded-2xl text-xs">
             <User className="w-4 h-4 text-sky-400 flex-shrink-0" />
             <span className="text-slate-400 font-bold whitespace-nowrap text-[11px]">Guard:</span>
@@ -236,79 +320,287 @@ export const LeaveAttendancePage: React.FC = () => {
         )}
       </div>
 
-      {/* Leave Requests List */}
-      <div className="space-y-4">
-        {currentDisplayList.map((req) => {
-          const isPendingSup = req.status === 'PENDING_SUPERVISOR';
-          const isPendingMgr = req.status === 'PENDING_MANAGER';
-          const isPendingExec = req.status === 'PENDING_EXECUTIVE';
-          const isFinalApproved = req.status === 'APPROVED';
-          const isRejected = req.status === 'REJECTED';
+      {/* Content Area: Attendance Register OR Leave Requests List */}
+      {activeTab === 'ATTENDANCE' ? (
+        <div className="space-y-4">
+          {/* Search & Filter Bar for Attendance Register */}
+          <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex-1 min-w-[240px]">
+              <input
+                type="text"
+                value={attendanceSearch}
+                onChange={(e) => setAttendanceSearch(e.target.value)}
+                placeholder="🔍 Search personnel by name, badge ID, phone..."
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white outline-none focus:border-sky-500 font-medium"
+              />
+            </div>
 
-          // Resolve guard from guards array
-          const matchedG = guards.find((g) => g.id === req.guardId || g.name === req.guardName);
-          const displayName = req.guardName && req.guardName !== 'Guard' ? req.guardName : (matchedG?.name || 'Abdul Mahfuz Islam');
-          const displayBadge = req.guardBadge || matchedG?.badgeNumber || 'G-001';
-          const displayPhone = matchedG?.phone || '+880 1799-15165';
+            <div className="flex items-center gap-1.5 flex-wrap text-xs">
+              {(['ALL', 'ABSENT', 'SUSPENDED', 'ON_DUTY', 'ON_LEAVE', 'OFF_DAY'] as const).map((filterKey) => (
+                <button
+                  key={filterKey}
+                  onClick={() => setAttendanceFilter(filterKey)}
+                  className={`px-3 py-1.5 rounded-xl font-bold transition text-[11px] ${
+                    attendanceFilter === filterKey
+                      ? 'bg-sky-500 text-slate-950 shadow'
+                      : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {filterKey === 'ALL' && `All Personnel (${guards.length})`}
+                  {filterKey === 'ABSENT' && `🚫 Absent (${absentCount})`}
+                  {filterKey === 'SUSPENDED' && `⚠️ Suspended (${suspendedCount})`}
+                  {filterKey === 'ON_DUTY' && `⚡ On Duty (${onDutyCount})`}
+                  {filterKey === 'ON_LEAVE' && `🏖️ On Leave (${onLeaveCount})`}
+                  {filterKey === 'OFF_DAY' && `⚪ Off-Day (${standbyCount})`}
+                </button>
+              ))}
+            </div>
+          </div>
 
-          // Check if current user can take action
-          const canAct =
-            (currentRole === 'SUPERVISOR' && isPendingSup) ||
-            (currentRole === 'MANAGER' && isPendingMgr) ||
-            ((currentRole === 'AGM' || currentRole === 'DGM') && isPendingExec);
+          {/* Personnel Attendance Cards Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {(() => {
+              const filteredAttendanceList = guards.filter((g) => {
+                // Search filter
+                if (attendanceSearch.trim()) {
+                  const q = attendanceSearch.toLowerCase();
+                  const match =
+                    g.name.toLowerCase().includes(q) ||
+                    g.badgeNumber.toLowerCase().includes(q) ||
+                    g.phone?.toLowerCase().includes(q);
+                  if (!match) return false;
+                }
 
-          return (
-            <div
-              key={req.id}
-              className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-3xl p-5 shadow-lg space-y-4 transition"
-            >
-              {/* Header: Guard Info + Dates */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-sky-500/20 text-sky-400 flex items-center justify-center font-bold text-sm">
-                    <User className="w-5 h-5" />
+                // Category filter
+                const isAssigned = assignedGuardIdsSet.has(g.id);
+                if (attendanceFilter === 'ABSENT') return g.status === 'ABSENT';
+                if (attendanceFilter === 'SUSPENDED') return g.status === 'SUSPENDED';
+                if (attendanceFilter === 'ON_LEAVE') return g.status === 'ON_LEAVE';
+                if (attendanceFilter === 'ON_DUTY') return isAssigned;
+                if (attendanceFilter === 'OFF_DAY') return !isAssigned && g.status === 'ACTIVE';
+
+                return true;
+              });
+
+              if (filteredAttendanceList.length === 0) {
+                return (
+                  <div className="col-span-full p-10 bg-slate-900 border border-slate-800 rounded-3xl text-center space-y-2">
+                    <p className="text-sm font-bold text-slate-300">No personnel found for the selected criteria</p>
+                    <p className="text-xs text-slate-500">Try changing your search keywords or filter tab.</p>
                   </div>
+                );
+              }
+
+              return filteredAttendanceList.map((guard) => {
+                const isAssigned = assignedGuardIdsSet.has(guard.id);
+                const isAbsent = guard.status === 'ABSENT';
+                const isSuspended = guard.status === 'SUSPENDED';
+                const isOnLeave = guard.status === 'ON_LEAVE';
+                const todayAsg = assignments.find(
+                  (a) => a.guardId === guard.id && a.date === currentDate && a.status === 'confirmed'
+                );
+                const loc = locations.find((l) => l.id === guard.defaultLocationId);
+                const post = loc?.posts.find((p) => p.id === todayAsg?.postId || p.id === guard.fixedPostId);
+
+                return (
+                  <div
+                    key={guard.id}
+                    className={`bg-slate-900 border rounded-2xl p-4 space-y-3 transition shadow-lg ${
+                      isAbsent
+                        ? 'border-rose-700/80 bg-rose-950/20'
+                        : isSuspended
+                        ? 'border-amber-700/80 bg-amber-950/20'
+                        : isOnLeave
+                        ? 'border-amber-700/70 bg-amber-950/20'
+                        : isAssigned
+                        ? 'border-emerald-800/80 bg-slate-900'
+                        : 'border-slate-800 bg-slate-900'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="font-bold text-white text-xs">{guard.name}</span>
+                        <div className="text-[11px] text-slate-400 flex items-center gap-1.5 mt-0.5">
+                          <span className="font-mono text-sky-400 font-bold">{guard.badgeNumber}</span>
+                          <span>•</span>
+                          <span>{guard.phone || 'No phone'}</span>
+                        </div>
+                      </div>
+
+                      {/* Status Badge */}
+                      {isAbsent ? (
+                        <span className="px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-700 text-[10px] font-black">
+                          🚫 ABSENT
+                        </span>
+                      ) : isSuspended ? (
+                        <span className="px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-700 text-[10px] font-black flex items-center gap-1">
+                          ⚠️ SUSPENDED
+                        </span>
+                      ) : isOnLeave ? (
+                        <span className="px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-700 text-[10px] font-black">
+                          🏖️ ON LEAVE
+                        </span>
+                      ) : isAssigned ? (
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-700 text-[10px] font-black flex items-center gap-1">
+                          🟢 ON DUTY
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full bg-sky-950 text-sky-300 border border-sky-800 text-[10px] font-bold">
+                          ⚪ OFF-DAY
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Disciplinary Record Banner if exists */}
+                    {(isSuspended || isAbsent || guard.disciplinaryNote) && (
+                      <div
+                        onClick={() => setDisciplinaryGuard(guard)}
+                        className={`p-2 rounded-xl text-[10px] border flex items-center justify-between gap-2 cursor-pointer transition ${
+                          isSuspended
+                            ? 'bg-amber-950/40 border-amber-850 text-amber-300 hover:bg-amber-900/30'
+                            : 'bg-rose-950/40 border-rose-850 text-rose-300 hover:bg-rose-900/30'
+                        }`}
+                      >
+                        <span className="truncate">
+                          ⚖️ {guard.disciplinaryNote || (isSuspended ? `Suspended until ${guard.suspensionEndDate || 'notice'}` : 'Marked Absent')}
+                        </span>
+                        <span className="underline font-bold shrink-0">Details</span>
+                      </div>
+                    )}
+
+                    {/* Duty details */}
+                    <div className="text-[11px] text-slate-400 pt-2 border-t border-slate-800 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span>Base Location:</span>
+                        <strong className="text-slate-200">{loc?.name || 'Central Facility'}</strong>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Today&apos;s Post:</span>
+                        {todayAsg ? (
+                          <strong className="text-emerald-400 truncate max-w-[140px]">
+                            {post?.name || 'Duty Post'} ({todayAsg.shift})
+                          </strong>
+                        ) : isAbsent ? (
+                          <strong className="text-rose-400">Marked Absent</strong>
+                        ) : isSuspended ? (
+                          <strong className="text-amber-400">Suspended from Post</strong>
+                        ) : isOnLeave ? (
+                          <strong className="text-amber-400">Scheduled Leave</strong>
+                        ) : (
+                          <strong className="text-sky-300">Standby / Rest Day</strong>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Attendance & Disciplinary Actions */}
+                    {!isGuard && (
+                      <div className="pt-2 border-t border-slate-800 flex items-center gap-2">
+                        {isAbsent || isSuspended ? (
+                          <>
+                            <button
+                              onClick={() => applyDisciplinaryAction({ guardId: guard.id, actionType: 'ACTIVE', reason: 'Reinstated' })}
+                              className="flex-1 py-1.5 px-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 transition shadow cursor-pointer"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Make Active</span>
+                            </button>
+                            <button
+                              onClick={() => setDisciplinaryGuard(guard)}
+                              className="py-1.5 px-2.5 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-700 text-slate-300 font-bold text-xs flex items-center justify-center gap-1 transition cursor-pointer"
+                            >
+                              <span>⚖️ Action</span>
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => setDisciplinaryGuard(guard)}
+                            className="w-full py-1.5 px-3 rounded-xl bg-slate-950 hover:bg-rose-950/50 border border-slate-800 hover:border-rose-700 text-slate-300 hover:text-rose-300 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                          >
+                            <span>⚖️ Discipline / Absent / Suspend</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              });
+            })()}
+          </div>
+        </div>
+      ) : (
+        /* Leave Requests List */
+        <div className="space-y-4">
+          {currentDisplayList.map((req) => {
+            const isPendingSup = req.status === 'PENDING_SUPERVISOR';
+            const isPendingMgr = req.status === 'PENDING_MANAGER';
+            const isPendingExec = req.status === 'PENDING_EXECUTIVE';
+            const isFinalApproved = req.status === 'APPROVED';
+            const isRejected = req.status === 'REJECTED';
+
+            // Resolve guard from guards array
+            const matchedG = guards.find((g) => g.id === req.guardId || g.name === req.guardName);
+            const displayName = req.guardName && req.guardName !== 'Guard' ? req.guardName : (matchedG?.name || 'Abdul Mahfuz Islam');
+            const displayBadge = req.guardBadge || matchedG?.badgeNumber || 'G-001';
+            const displayPhone = matchedG?.phone || '+880 1799-15165';
+
+            // Check if current user can take action
+            const canAct =
+              (currentRole === 'SUPERVISOR' && isPendingSup) ||
+              (currentRole === 'MANAGER' && isPendingMgr) ||
+              ((currentRole === 'AGM' || currentRole === 'DGM') && isPendingExec);
+
+            return (
+              <div
+                key={req.id}
+                className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-3xl p-5 shadow-lg space-y-4 transition"
+              >
+                {/* Header: Guard Info + Dates */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-sky-500/20 text-sky-400 flex items-center justify-center font-bold text-sm">
+                      <User className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-extrabold text-sm text-white">{displayName}</span>
+                        <span className="px-2 py-0.5 rounded-md bg-sky-950 text-sky-400 font-mono text-[10px] border border-sky-800 font-bold">
+                          {displayBadge}
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono hidden sm:inline">
+                          {displayPhone}
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-2">
+                        <span className="text-amber-400 font-semibold flex items-center gap-1">
+                          <Calendar className="w-3.5 h-3.5" /> {req.startDate} ➔ {req.endDate}
+                        </span>
+                        <span>• Type: <strong className="text-slate-200">{req.type || req.reason}</strong></span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Status Badge */}
                   <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-extrabold text-sm text-white">{displayName}</span>
-                      <span className="px-2 py-0.5 rounded-md bg-sky-950 text-sky-400 font-mono text-[10px] border border-sky-800 font-bold">
-                        {displayBadge}
+                    {isFinalApproved && (
+                      <span className="px-3 py-1.5 bg-emerald-950/80 text-emerald-400 border border-emerald-800 font-black text-xs rounded-xl flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> ✓ Fully Authorized
                       </span>
-                      <span className="text-[10px] text-slate-500 font-mono hidden sm:inline">
-                        {displayPhone}
+                    )}
+                    {isRejected && (
+                      <span className="px-3 py-1.5 bg-rose-950/80 text-rose-300 border border-rose-800 font-black text-xs rounded-xl flex items-center gap-1.5">
+                        <XCircle className="w-3.5 h-3.5" /> ✗ Rejected
                       </span>
-                    </div>
-                    <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-2">
-                      <span className="text-amber-400 font-semibold flex items-center gap-1">
-                        <Calendar className="w-3.5 h-3.5" /> {req.startDate} ➔ {req.endDate}
+                    )}
+                    {!isFinalApproved && !isRejected && (
+                      <span className="px-3 py-1.5 bg-amber-950/80 text-amber-300 border border-amber-800 font-black text-xs rounded-xl flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                        {isPendingSup && 'Stage 1/3: Awaiting Supervisor'}
+                        {isPendingMgr && 'Stage 2/3: Awaiting Manager'}
+                        {isPendingExec && 'Stage 3/3: Awaiting AGM/DGM'}
                       </span>
-                      <span>• Type: <strong className="text-slate-200">{req.type || req.reason}</strong></span>
-                    </div>
+                    )}
                   </div>
                 </div>
-
-                {/* Status Badge */}
-                <div>
-                  {isFinalApproved && (
-                    <span className="px-3 py-1.5 bg-emerald-950/80 text-emerald-400 border border-emerald-800 font-black text-xs rounded-xl flex items-center gap-1.5">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> ✓ Fully Authorized
-                    </span>
-                  )}
-                  {isRejected && (
-                    <span className="px-3 py-1.5 bg-rose-950/80 text-rose-300 border border-rose-800 font-black text-xs rounded-xl flex items-center gap-1.5">
-                      <XCircle className="w-3.5 h-3.5" /> ✗ Rejected
-                    </span>
-                  )}
-                  {!isFinalApproved && !isRejected && (
-                    <span className="px-3 py-1.5 bg-amber-950/80 text-amber-300 border border-amber-800 font-black text-xs rounded-xl flex items-center gap-1.5">
-                      <Clock className="w-3.5 h-3.5 animate-spin text-amber-400" />
-                      {isPendingSup && 'Stage 1/3: Awaiting Supervisor'}
-                      {isPendingMgr && 'Stage 2/3: Awaiting Manager'}
-                      {isPendingExec && 'Stage 3/3: Awaiting AGM/DGM'}
-                    </span>
-                  )}
-                </div>
-              </div>
 
               {/* Sequential Stepper Progress Bar */}
               <div className="grid grid-cols-4 gap-2 text-xs py-1">
@@ -442,6 +734,7 @@ export const LeaveAttendancePage: React.FC = () => {
           </div>
         )}
       </div>
+      )}
 
       {/* Reject Reason Modal */}
       {rejectingReqId && (
@@ -605,6 +898,15 @@ export const LeaveAttendancePage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Disciplinary, Multi-Day Absence & Suspension Modal */}
+      <DisciplinaryModal
+        isOpen={!!disciplinaryGuard}
+        guard={disciplinaryGuard}
+        currentRole={currentRole}
+        onClose={() => setDisciplinaryGuard(null)}
+        onApplyAction={applyDisciplinaryAction}
+      />
     </div>
   );
 };

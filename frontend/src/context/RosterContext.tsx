@@ -35,12 +35,31 @@ export interface GuardProfile {
   bloodGroup: string;
   defaultLocationId: string;
   fixedPostId: string | null;
-  status: 'ACTIVE' | 'ON_LEAVE' | 'ABSENT' | 'INACTIVE';
+  status: 'ACTIVE' | 'ON_LEAVE' | 'ABSENT' | 'SUSPENDED' | 'INACTIVE';
+  disciplinaryNote?: string;
+  suspensionEndDate?: string;
+  absentStartDate?: string;
+  absentEndDate?: string;
+  disciplinaryActionBy?: string;
   dutyStreak: number;
   weeklyHours: number;
   monthlyHours: number;
   nightCountThisWeek: number;
   qualifications: string[];
+  email?: string;
+  dateOfBirth?: string;
+  gender?: string;
+  designation?: string;
+  employmentType?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  emergencyContactRelation?: string;
+  medicalNotes?: string;
+  bankName?: string;
+  bankAccountNo?: string;
+  payrollId?: string;
+  trainingCertifications?: string;
+  licenseExpiry?: string;
 }
 
 export interface Assignment {
@@ -199,7 +218,7 @@ interface RosterContextType {
   currentRole: RoleType;
   setCurrentRole: (role: RoleType) => void;
   loginUser: (role: RoleType, email?: string, password?: string) => void;
-  loginWithCredentials: (identifier: string, password: string) => { success: boolean; error?: string };
+  loginWithCredentials: (identifier: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logoutUser: () => void;
 
   locations: SystemLocation[];
@@ -214,6 +233,16 @@ interface RosterContextType {
   guards: GuardProfile[];
   addGuard: (guard: Omit<GuardProfile, 'id' | 'badgeNumber' | 'dutyStreak' | 'weeklyHours' | 'monthlyHours' | 'nightCountThisWeek'>) => Promise<void>;
   updateGuardFixedPost: (guardId: string, fixedPostId: string | null) => Promise<void>;
+  updateGuardProfile: (guardId: string, profile: Partial<GuardProfile>) => Promise<void>;
+  markGuardAbsent: (guardId: string, isAbsent?: boolean) => Promise<void>;
+  applyDisciplinaryAction: (params: {
+    guardId: string;
+    actionType: 'ABSENT' | 'SUSPENDED' | 'WARNING' | 'ACTIVE';
+    durationDays?: number;
+    startDate?: string;
+    endDate?: string;
+    reason: string;
+  }) => Promise<void>;
 
   assignments: Assignment[];
   assignGuardToPost: (guardId: string, locationId: string, postId: string, shift: 'DAY' | 'NIGHT') => Promise<void>;
@@ -265,14 +294,8 @@ interface RosterContextType {
 const RosterContext = createContext<RosterContextType | undefined>(undefined);
 
 export const RosterProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState<UserSession | null>({
-    id: 'USR-MGR-01',
-    email: 'manager@shieldops.com',
-    name: 'Md. Imran Hossain',
-    role: 'MANAGER',
-    title: 'Operations Manager',
-  });
-  const [currentRole, setCurrentRole] = useState<RoleType>('MANAGER');
+  const [currentUser, setCurrentUser] = useState<UserSession | null>(null);
+  const [currentRole, setCurrentRole] = useState<RoleType>('SECURITY_GUARD');
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -280,9 +303,9 @@ export const RosterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          if (parsed) {
+          if (parsed && parsed.role) {
             setCurrentUser(parsed);
-            if (parsed.role) setCurrentRole(parsed.role);
+            setCurrentRole(parsed.role);
           }
         } catch {
           // ignore
@@ -290,6 +313,7 @@ export const RosterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
     }
   }, []);
+
   const [activeNav, setActiveNav] = useState('dashboard');
   const [selectedLocationFilter, setSelectedLocationFilter] = useState('ALL');
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -301,37 +325,20 @@ export const RosterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [leaveRequests, setLeaveRequests] = useState<LeaveReq[]>([]);
   const [overtimeRequests, setOvertimeRequests] = useState<OvertimeReq[]>([]);
 
-  const loginWithCredentials = (identifier: string, password: string): { success: boolean; error?: string } => {
-    const cleanId = identifier.trim().toLowerCase();
-    const cleanPass = password.trim();
-
-    const matched = OFFICIAL_ACCOUNTS.find(
-      (acc) =>
-        (acc.username.toLowerCase() === cleanId || acc.email.toLowerCase() === cleanId) &&
-        acc.password === cleanPass
-    );
-
-    if (!matched) {
-      return { success: false, error: 'Invalid ID/Email or Password. Access Denied.' };
-    }
-
-    const session: UserSession = {
-      id: matched.id,
-      email: matched.email,
-      name: matched.name,
-      role: matched.role,
-      title: matched.title,
-    };
+  const loginWithCredentials = async (identifier: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    const response = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifier, password }) });
+    const result = await response.json();
+    if (!response.ok || !result.success) return { success: false, error: result.error || 'Invalid ID/Email or Password.' };
+    const session: UserSession = result.data;
 
     setCurrentUser(session);
-    setCurrentRole(matched.role);
+    setCurrentRole(session.role);
     setActiveNav('dashboard');
-
     if (typeof window !== 'undefined') {
       localStorage.setItem('shieldops_user', JSON.stringify(session));
     }
 
-    showToast(`Authenticated as ${matched.name} (${matched.role})`);
+    showToast(`Authenticated as ${session.name} (${session.role})`);
     return { success: true };
   };
 
@@ -357,6 +364,7 @@ export const RosterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const logoutUser = () => {
     setCurrentUser(null);
+    void fetch('/api/auth/logout', { method: 'POST' });
     if (typeof window !== 'undefined') {
       localStorage.removeItem('shieldops_user');
     }
@@ -397,24 +405,62 @@ export const RosterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const guardJson = await guardRes.json();
       if (guardJson.success && guardJson.data) {
         const bloods = ['A+', 'B+', 'O+', 'AB+', 'O-', 'A-'];
-        loadedGuards = guardJson.data.map((g: any, i: number) => ({
-          id: g.id,
-          name: g.name,
-          badgeNumber: `G-${String(i + 1).padStart(3, '0')}`,
-          phone: g.phone || '+880 1700000000',
-          nid: g.nid || `1998${i}`,
-          address: g.address || 'Dhaka',
-          joiningDate: g.joinDate ? g.joinDate.split('T')[0] : '2023-03-15',
-          bloodGroup: bloods[i % bloods.length],
-          defaultLocationId: g.fixedPost?.locationId || 'LOC-1',
-          fixedPostId: g.fixedPostId,
-          status: g.status as 'ACTIVE' | 'ON_LEAVE' | 'ABSENT' | 'INACTIVE',
-          dutyStreak: (i % 6) + 1,
-          weeklyHours: 36 + (i % 4) * 12,
-          monthlyHours: 120 + (i % 15) * 6,
-          nightCountThisWeek: i % 4,
-          qualifications: ['Gate Security', 'CCTV Monitoring', 'Fire Safety'],
-        }));
+        loadedGuards = guardJson.data.map((g: any, i: number) => {
+          const medNote = g.medicalNotes || '';
+          let resolvedStatus: 'ACTIVE' | 'ON_LEAVE' | 'ABSENT' | 'SUSPENDED' | 'INACTIVE' = (g.status as any) || 'ACTIVE';
+          let resolvedDisciplinaryNote: string | undefined = g.disciplinaryNote || undefined;
+          let resolvedSuspensionEndDate: string | undefined = g.suspensionEndDate ? g.suspensionEndDate.split('T')[0] : undefined;
+
+          if (medNote.startsWith('[SUSPENDED]')) {
+            resolvedStatus = 'SUSPENDED';
+            resolvedDisciplinaryNote = medNote;
+            const match = medNote.match(/Ends:\s*([0-9-]+)/);
+            if (match) resolvedSuspensionEndDate = match[1];
+          } else if (medNote.startsWith('[ABSENT]')) {
+            resolvedStatus = 'ABSENT';
+            resolvedDisciplinaryNote = medNote;
+          } else if (medNote.startsWith('[WARNING]')) {
+            resolvedDisciplinaryNote = medNote;
+          }
+
+          return {
+            id: g.id,
+            name: g.name,
+            badgeNumber: `G-${String(i + 1).padStart(3, '0')}`,
+            phone: g.phone || '+880 1700000000',
+            nid: g.nid || `1998${i}`,
+            address: g.address || 'Dhaka',
+            joiningDate: g.joinDate ? g.joinDate.split('T')[0] : '2023-03-15',
+            bloodGroup: bloods[i % bloods.length],
+            defaultLocationId: g.fixedPost?.locationId || 'LOC-1',
+            fixedPostId: g.fixedPostId,
+            status: resolvedStatus,
+            disciplinaryNote: resolvedDisciplinaryNote,
+            suspensionEndDate: resolvedSuspensionEndDate,
+            absentStartDate: g.absentStartDate ? g.absentStartDate.split('T')[0] : undefined,
+            absentEndDate: g.absentEndDate ? g.absentEndDate.split('T')[0] : undefined,
+            disciplinaryActionBy: g.disciplinaryActionBy || undefined,
+            dutyStreak: (i % 6) + 1,
+            weeklyHours: 36 + (i % 4) * 12,
+            monthlyHours: 120 + (i % 15) * 6,
+            nightCountThisWeek: i % 4,
+            qualifications: ['Gate Security', 'CCTV Monitoring', 'Fire Safety'],
+            email: g.email || undefined,
+            dateOfBirth: g.dateOfBirth?.split('T')[0],
+            gender: g.gender || undefined,
+            designation: g.designation || 'Security Guard',
+            employmentType: g.employmentType || 'Permanent',
+            emergencyContactName: g.emergencyContactName || undefined,
+            emergencyContactPhone: g.emergencyContactPhone || undefined,
+            emergencyContactRelation: g.emergencyContactRelation || undefined,
+            medicalNotes: g.medicalNotes || undefined,
+            bankName: g.bankName || undefined,
+            bankAccountNo: g.bankAccountNo || undefined,
+            payrollId: g.payrollId || undefined,
+            trainingCertifications: g.trainingCertifications || undefined,
+            licenseExpiry: g.licenseExpiry?.split('T')[0],
+          };
+        });
         setGuards(loadedGuards);
       }
 
@@ -810,6 +856,127 @@ export const RosterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
+  const updateGuardProfile = async (guardId: string, profile: Partial<GuardProfile>) => {
+    const res = await fetch('/api/guards', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: guardId, ...profile }) });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || 'Could not update profile');
+    await refreshData();
+  };
+
+  const markGuardAbsent = async (guardId: string, isAbsent: boolean = true) => {
+    try {
+      const targetGuard = guards.find((g) => g.id === guardId);
+      const newStatus = isAbsent ? 'ABSENT' : 'ACTIVE';
+
+      // 1. Update guard status in database
+      const res = await fetch('/api/guards', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: guardId, status: newStatus }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to update guard status');
+      }
+
+      // 2. If marked absent, remove active assignment for today if any
+      if (isAbsent) {
+        const todayAsg = assignments.find((a) => a.guardId === guardId && a.date === currentDate && a.status === 'confirmed');
+        if (todayAsg) {
+          await fetch(`/api/assignments?id=${todayAsg.id}`, { method: 'DELETE' });
+        }
+      }
+
+      await refreshData();
+      showToast(
+        isAbsent
+          ? `🚫 Guard ${targetGuard?.name || guardId} marked as ABSENT. Duty slot opened for replacement/OT.`
+          : `✅ Guard ${targetGuard?.name || guardId} marked as ACTIVE / Present.`
+      );
+    } catch (err: any) {
+      console.error('Error marking guard absent:', err);
+      showToast(`Error: ${err.message}`);
+    }
+  };
+
+  const applyDisciplinaryAction = async (params: {
+    guardId: string;
+    actionType: 'ABSENT' | 'SUSPENDED' | 'WARNING' | 'ACTIVE';
+    durationDays?: number;
+    startDate?: string;
+    endDate?: string;
+    reason: string;
+  }) => {
+    try {
+      const targetGuard = guards.find((g) => g.id === params.guardId);
+      const newStatus =
+        params.actionType === 'ABSENT'
+          ? 'ABSENT'
+          : params.actionType === 'SUSPENDED'
+          ? 'SUSPENDED'
+          : params.actionType === 'ACTIVE'
+          ? 'ACTIVE'
+          : targetGuard?.status || 'ACTIVE';
+
+      const updatePayload: any = {
+        id: params.guardId,
+        status: newStatus,
+        disciplinaryNote:
+          params.actionType === 'ACTIVE'
+            ? null
+            : `[${params.actionType}] ${params.reason || 'Disciplinary record'} (By ${currentUser?.name || currentRole} on ${currentDate})`,
+        disciplinaryActionBy: `${currentUser?.name || currentRole} (${currentRole})`,
+      };
+
+      if (params.actionType === 'ABSENT') {
+        updatePayload.absentStartDate = params.startDate || currentDate;
+        updatePayload.absentEndDate = params.endDate || currentDate;
+      } else if (params.actionType === 'SUSPENDED') {
+        if (params.endDate) {
+          updatePayload.suspensionEndDate = params.endDate;
+        } else if (params.durationDays) {
+          const endD = new Date(currentDate);
+          endD.setDate(endD.getDate() + params.durationDays);
+          updatePayload.suspensionEndDate = endD.toISOString().split('T')[0];
+        }
+      } else if (params.actionType === 'ACTIVE') {
+        updatePayload.absentStartDate = null;
+        updatePayload.absentEndDate = null;
+        updatePayload.suspensionEndDate = null;
+      }
+
+      const res = await fetch('/api/guards', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatePayload),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to update disciplinary status');
+
+      // If Absent or Suspended, clear today's active assignment so post shows shortage
+      if (params.actionType === 'ABSENT' || params.actionType === 'SUSPENDED') {
+        const todayAsg = assignments.find((a) => a.guardId === params.guardId && a.date === currentDate && a.status === 'confirmed');
+        if (todayAsg) {
+          await fetch(`/api/assignments?id=${todayAsg.id}`, { method: 'DELETE' });
+        }
+      }
+
+      await refreshData();
+      showToast(
+        params.actionType === 'SUSPENDED'
+          ? `⚠️ Guard ${targetGuard?.name || params.guardId} has been SUSPENDED (${params.durationDays ? params.durationDays + ' Days' : 'Disciplinary Period'}). Slot opened for replacement.`
+          : params.actionType === 'ABSENT'
+          ? `🚫 Guard ${targetGuard?.name || params.guardId} marked ABSENT (${params.durationDays ? params.durationDays + ' Days' : 'Today'}). Slot opened for replacement.`
+          : params.actionType === 'WARNING'
+          ? `📝 Disciplinary Warning note logged for ${targetGuard?.name || params.guardId}.`
+          : `✅ Guard ${targetGuard?.name || params.guardId} restored to ACTIVE status.`
+      );
+    } catch (err: any) {
+      console.error('Error applying disciplinary action:', err);
+      showToast(`Error: ${err.message}`);
+    }
+  };
+
   const applyLeave = async (leaveData: {
     guardId?: string;
     guardName?: string;
@@ -1016,6 +1183,9 @@ export const RosterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         guards,
         addGuard,
         updateGuardFixedPost,
+        updateGuardProfile,
+        markGuardAbsent,
+        applyDisciplinaryAction,
         assignments,
         assignGuardToPost,
         removeAssignment,

@@ -13,6 +13,7 @@ import { LeaveAttendancePage } from '../components/pages/LeaveAttendancePage';
 import { ReportsPage } from '../components/pages/ReportsPage';
 import { SettingsPage } from '../components/pages/SettingsPage';
 import { GuardMobilePortal } from '../components/guard/GuardMobilePortal';
+import { MyProfilePage } from '../components/pages/MyProfilePage';
 import { ShieldAlert } from 'lucide-react';
 
 const ROLE_ALLOWED_PAGES: Record<string, string[]> = {
@@ -20,7 +21,7 @@ const ROLE_ALLOWED_PAGES: Record<string, string[]> = {
   AGM: ['dashboard', 'deployment', 'matrix', 'guards', 'leave', 'reports'],
   MANAGER: ['dashboard', 'deployment', 'matrix', 'guards', 'leave', 'reports', 'settings'],
   SUPERVISOR: ['dashboard', 'deployment', 'matrix', 'guards', 'leave', 'reports'],
-  SECURITY_GUARD: ['dashboard', 'matrix', 'guards', 'leave'],
+  SECURITY_GUARD: ['dashboard', 'profile', 'leave'],
 };
 
 function RouterView() {
@@ -64,6 +65,8 @@ function RouterView() {
   }
 
   switch (activeNav) {
+    case 'profile':
+      return <MyProfilePage />;
     case 'deployment':
       return <MasterRosterBoard />;
     case 'matrix':
@@ -97,9 +100,13 @@ export default function SecurityRosterApp() {
 
   return (
     <RosterProvider>
-      <AppLayout>
-        <RouterView />
-      </AppLayout>
+      <AuthenticatedApp />
     </RosterProvider>
   );
+}
+
+function AuthenticatedApp() {
+  const { currentUser } = useRoster();
+  if (!currentUser) return <LoginPage />;
+  return <AppLayout><RouterView /></AppLayout>;
 }

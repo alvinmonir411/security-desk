@@ -22,6 +22,7 @@ import {
   Filter,
 } from 'lucide-react';
 import { BulkImportModal } from '../roster/BulkImportModal';
+import { DisciplinaryModal } from '../roster/DisciplinaryModal';
 
 export const GuardMatrixAndDirectoryPage: React.FC = () => {
   const {
@@ -29,11 +30,17 @@ export const GuardMatrixAndDirectoryPage: React.FC = () => {
     locations,
     addGuard,
     updateGuardFixedPost,
+    markGuardAbsent,
+    applyDisciplinaryAction,
     showToast,
+    currentRole,
   } = useRoster();
 
   // Active Sub-Tab View: 'matrix' (7-Day Timeline) or 'directory' (Personnel Profiles)
   const [activeTab, setActiveTab] = useState<'matrix' | 'directory'>('matrix');
+
+  // Disciplinary Modal Guard Target
+  const [disciplinaryGuard, setDisciplinaryGuard] = useState<GuardProfile | null>(null);
 
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -105,7 +112,13 @@ export const GuardMatrixAndDirectoryPage: React.FC = () => {
     }
     if (selectedLocFilter !== 'ALL' && g.defaultLocationId !== selectedLocFilter) return false;
     if (selectedPostFilter !== 'ALL' && g.fixedPostId !== selectedPostFilter) return false;
-    if (statusFilter !== 'ALL' && g.status !== statusFilter) return false;
+    if (statusFilter !== 'ALL') {
+      if (statusFilter === 'OFF_DAY') {
+        if (g.dutyStreak < 6 || g.status !== 'ACTIVE') return false;
+      } else if (g.status !== statusFilter) {
+        return false;
+      }
+    }
     if (postTypeFilter === 'FIXED' && !g.fixedPostId) return false;
     if (postTypeFilter === 'ROTATING' && g.fixedPostId) return false;
     return true;
@@ -135,73 +148,90 @@ export const GuardMatrixAndDirectoryPage: React.FC = () => {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
-      {/* 1. Master Header with Tab Switcher */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-2xl space-y-4">
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <div>
-            <h1 className="text-xl font-black text-white tracking-wide flex items-center gap-2">
-              <Users className="w-6 h-6 text-sky-400" />
-              GUARDS & DUTY MATRIX CENTER
-            </h1>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Unified 200-force personnel directory & 7-day continuous shift schedule
-            </p>
+      {/* 1. Master Command Header with Tab Switcher */}
+      <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-slate-900/95 to-slate-950 border border-slate-800/80 rounded-3xl p-6 shadow-2xl space-y-5 backdrop-blur-xl">
+        {/* Ambient background glow */}
+        <div className="absolute top-0 right-1/4 w-96 h-32 bg-sky-500/10 blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-10 left-10 w-80 h-28 bg-indigo-500/10 blur-3xl pointer-events-none" />
+
+        <div className="relative flex items-center justify-between flex-wrap gap-4 z-10">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-sky-500/20 to-indigo-500/20 border border-sky-500/30 flex items-center justify-center text-sky-400 shadow-inner">
+              <Users className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-black text-white tracking-wide">
+                  GUARDS &amp; DUTY MATRIX CENTER
+                </h1>
+                <span className="px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30 text-[10px] font-extrabold">
+                  {guards.length} Force
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Unified 200-force personnel directory &amp; 7-day continuous rotation schedule
+              </p>
+            </div>
           </div>
 
-          {/* Sub-Tab Navigation Toggle */}
-          <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800">
+          {/* Sub-Tab Navigation Switcher */}
+          <div className="flex items-center bg-slate-950/90 p-1.5 rounded-2xl border border-slate-800 shadow-inner">
             <button
               onClick={() => setActiveTab('matrix')}
-              className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition cursor-pointer ${
+              className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition cursor-pointer ${
                 activeTab === 'matrix'
-                  ? 'bg-sky-500 text-slate-950 shadow-lg font-black'
+                  ? 'bg-gradient-to-r from-sky-500 to-blue-600 text-slate-950 shadow-lg font-black'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              <CalendarDays className="w-4 h-4" /> [ 📅 7-Day Duty Matrix ]
+              <CalendarDays className="w-4 h-4" />
+              <span>7-Day Duty Matrix</span>
             </button>
             <button
               onClick={() => setActiveTab('directory')}
-              className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition cursor-pointer ${
+              className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition cursor-pointer ${
                 activeTab === 'directory'
-                  ? 'bg-sky-500 text-slate-950 shadow-lg font-black'
+                  ? 'bg-gradient-to-r from-sky-500 to-blue-600 text-slate-950 shadow-lg font-black'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              <Users className="w-4 h-4" /> [ 👥 Guards Directory ({guards.length}) ]
+              <Users className="w-4 h-4" />
+              <span>Force Directory ({guards.length})</span>
             </button>
           </div>
 
           {/* Actions */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <button
               onClick={() => setIsBulkImportOpen(true)}
-              className="px-3.5 py-2 bg-slate-800 hover:bg-slate-750 border border-slate-700 text-emerald-400 font-bold text-xs rounded-xl flex items-center gap-1.5 transition shadow"
+              className="px-4 py-2.5 bg-slate-950/80 hover:bg-slate-800 border border-slate-700/80 hover:border-emerald-500/50 text-emerald-400 font-bold text-xs rounded-xl flex items-center gap-2 transition shadow cursor-pointer"
             >
-              <FileSpreadsheet className="w-4 h-4" /> [ Excel / CSV Import ]
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>Excel Import</span>
             </button>
             <button
               onClick={() => setIsAddGuardOpen(true)}
-              className="px-3.5 py-2 bg-sky-500 hover:bg-sky-400 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 transition shadow"
+              className="px-4 py-2.5 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-slate-950 font-black text-xs rounded-xl flex items-center gap-2 shadow-lg shadow-sky-500/20 transition cursor-pointer"
             >
-              <Plus className="w-4 h-4" /> [+ Add New Guard]
+              <Plus className="w-4 h-4" />
+              <span>+ Add Guard</span>
             </button>
           </div>
         </div>
 
         {/* Unified Search & Filters Row */}
-        <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-800/80 flex-wrap">
-          <div className="relative flex-1 min-w-[260px] max-w-md">
-            <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-2.5" />
+        <div className="relative flex items-center justify-between gap-3 pt-4 border-t border-slate-800/80 flex-wrap z-10">
+          <div className="relative flex-1 min-w-[280px] max-w-md">
+            <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
             <input
               type="text"
-              placeholder="🔍 Search 200 guards by Name, ID, or Phone..."
+              placeholder="🔍 Search guards by Name, ID, or Phone..."
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);
                 setCurrentPage(1);
               }}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2 text-xs text-white outline-none focus:border-sky-500 font-medium"
+              className="w-full bg-slate-950/90 border border-slate-800 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-white outline-none focus:border-sky-500 font-medium transition shadow-inner"
             />
           </div>
 
@@ -213,11 +243,13 @@ export const GuardMatrixAndDirectoryPage: React.FC = () => {
                 setSelectedPostFilter('ALL');
                 setCurrentPage(1);
               }}
-              className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-semibold text-slate-300 outline-none cursor-pointer"
+              className="bg-slate-950/90 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-300 outline-none cursor-pointer focus:border-sky-500"
             >
-              <option value="ALL">All Locations</option>
+              <option value="ALL">📍 All Locations</option>
               {locations.map((l) => (
-                <option key={l.id} value={l.id}>{l.name}</option>
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
               ))}
             </select>
 
@@ -227,9 +259,9 @@ export const GuardMatrixAndDirectoryPage: React.FC = () => {
                 setPostTypeFilter(e.target.value);
                 setCurrentPage(1);
               }}
-              className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-semibold text-slate-300 outline-none cursor-pointer"
+              className="bg-slate-950/90 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-300 outline-none cursor-pointer focus:border-sky-500"
             >
-              <option value="ALL">All Posts (Fixed & Rotating)</option>
+              <option value="ALL">All Posts (Fixed &amp; Rotating)</option>
               <option value="FIXED">🔒 Fixed Post Guards</option>
               <option value="ROTATING">🔁 Rotating Pool Guards</option>
             </select>
@@ -240,7 +272,7 @@ export const GuardMatrixAndDirectoryPage: React.FC = () => {
                 setPageSize(Number(e.target.value));
                 setCurrentPage(1);
               }}
-              className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-bold text-sky-400 outline-none cursor-pointer"
+              className="bg-slate-950/90 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs font-bold text-sky-400 outline-none cursor-pointer focus:border-sky-500"
             >
               <option value={25}>Show 25 / page</option>
               <option value={50}>Show 50 / page</option>
@@ -248,6 +280,72 @@ export const GuardMatrixAndDirectoryPage: React.FC = () => {
               <option value={200}>Show All 200 Guards</option>
             </select>
           </div>
+        </div>
+
+        {/* Quick Status Filter Pills with Micro Badges */}
+        <div className="flex items-center gap-2 pt-3 border-t border-slate-800/80 flex-wrap text-xs">
+          <span className="text-slate-400 font-bold text-[11px] uppercase mr-1 flex items-center gap-1">
+            <Filter className="w-3 h-3 text-sky-400" /> Filter:
+          </span>
+          {(
+            [
+              { key: 'ALL', label: 'All Force', count: guards.length, color: 'border-slate-800 text-slate-300 bg-slate-950/60' },
+              {
+                key: 'ACTIVE',
+                label: 'Active',
+                count: guards.filter((g) => g.status === 'ACTIVE').length,
+                color: 'border-emerald-800/60 text-emerald-300 bg-emerald-950/40',
+              },
+              {
+                key: 'OFF_DAY',
+                label: 'Off-Day',
+                count: guards.filter((g) => g.dutyStreak >= 6).length,
+                color: 'border-sky-800/60 text-sky-300 bg-sky-950/40',
+              },
+              {
+                key: 'ON_LEAVE',
+                label: 'On Leave',
+                count: guards.filter((g) => g.status === 'ON_LEAVE').length,
+                color: 'border-amber-800/60 text-amber-300 bg-amber-950/40',
+              },
+              {
+                key: 'ABSENT',
+                label: 'Absent',
+                count: guards.filter((g) => g.status === 'ABSENT').length,
+                color: 'border-rose-800/60 text-rose-300 bg-rose-950/40',
+              },
+              {
+                key: 'SUSPENDED',
+                label: 'Suspended',
+                count: guards.filter((g) => g.status === 'SUSPENDED').length,
+                color: 'border-amber-700 text-amber-300 bg-amber-950/60',
+              },
+            ] as const
+          ).map((pill) => (
+            <button
+              key={pill.key}
+              onClick={() => {
+                setStatusFilter(pill.key);
+                setCurrentPage(1);
+              }}
+              className={`px-3 py-1.5 rounded-xl font-bold border transition text-[11px] flex items-center gap-1.5 cursor-pointer ${
+                statusFilter === pill.key
+                  ? 'bg-sky-500 text-slate-950 border-sky-400 shadow-md font-black'
+                  : `${pill.color} hover:border-slate-600`
+              }`}
+            >
+              <span>{pill.label}</span>
+              <span
+                className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                  statusFilter === pill.key
+                    ? 'bg-slate-950 text-sky-300'
+                    : 'bg-white/10 text-white'
+                }`}
+              >
+                {pill.count}
+              </span>
+            </button>
+          ))}
         </div>
       </div>
 
@@ -428,67 +526,220 @@ export const GuardMatrixAndDirectoryPage: React.FC = () => {
       {activeTab === 'directory' && (
         <div className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {paginatedGuards.map((guard) => {
+            {paginatedGuards.map((guard, idx) => {
               const loc = locations.find((l) => l.id === guard.defaultLocationId);
               const fixedPost = loc?.posts.find((p) => p.id === guard.fixedPostId);
+              const isAbsent = guard.status === 'ABSENT';
+              const isSuspended = guard.status === 'SUSPENDED';
+              const isOnLeave = guard.status === 'ON_LEAVE';
+              const isOffDay = guard.dutyStreak >= 6;
+
+              // Generate consistent avatar colors based on index
+              const avatarGradients = [
+                'from-sky-500 to-blue-600',
+                'from-indigo-500 to-purple-600',
+                'from-teal-500 to-emerald-600',
+                'from-amber-500 to-orange-600',
+                'from-cyan-500 to-sky-600',
+              ];
+              const avatarGradient = avatarGradients[idx % avatarGradients.length];
+              const initials = guard.name
+                .split(' ')
+                .filter((p) => !['Md.', 'Mohammad', 'Kazi', 'Sheikh', 'Syed'].includes(p))
+                .slice(0, 2)
+                .map((p) => p.charAt(0))
+                .join('') || guard.name.slice(0, 2).toUpperCase();
 
               return (
                 <div
                   key={guard.id}
-                  className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl p-4 space-y-3 transition shadow-lg relative group"
+                  className={`relative group rounded-3xl p-5 border transition-all duration-300 shadow-xl overflow-hidden ${
+                    isAbsent
+                      ? 'bg-gradient-to-b from-rose-950/40 via-slate-900 to-slate-950 border-rose-800/80 shadow-rose-950/20'
+                      : isSuspended
+                      ? 'bg-gradient-to-b from-amber-950/40 via-slate-900 to-slate-950 border-amber-700 shadow-amber-950/20'
+                      : isOnLeave
+                      ? 'bg-gradient-to-b from-amber-950/30 via-slate-900 to-slate-950 border-amber-800/70'
+                      : 'bg-gradient-to-b from-slate-900/90 via-slate-900 to-slate-950/90 border-slate-800/80 hover:border-sky-500/50 hover:shadow-sky-500/10'
+                  }`}
                 >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <h3 className="font-bold text-white text-sm">{guard.name}</h3>
-                      <div className="text-[11px] text-slate-400 font-mono flex items-center gap-1.5 mt-0.5">
-                        <span className="text-sky-400 font-bold">{guard.badgeNumber}</span>
-                        <span>•</span>
-                        <span className="text-slate-400">{loc?.name || 'Assigned Location'}</span>
+                  {/* Subtle top glow accent */}
+                  <div
+                    className={`absolute -top-12 -right-12 w-28 h-28 rounded-full blur-2xl pointer-events-none opacity-25 ${
+                      isAbsent
+                        ? 'bg-rose-500'
+                        : isSuspended
+                        ? 'bg-amber-500'
+                        : isOnLeave
+                        ? 'bg-amber-500'
+                        : 'bg-sky-500'
+                    }`}
+                  />
+
+                  {/* Header: Avatar + Name + Status */}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`w-11 h-11 rounded-2xl bg-gradient-to-tr ${avatarGradient} text-white font-black text-xs flex items-center justify-center shadow-lg shrink-0 border border-white/20`}
+                      >
+                        {initials}
+                      </div>
+                      <div>
+                        <h3 className="font-extrabold text-white text-sm tracking-tight leading-snug group-hover:text-sky-300 transition">
+                          {guard.name}
+                        </h3>
+                        <div className="text-[11px] text-slate-400 flex items-center gap-1.5 mt-0.5">
+                          <span className="font-mono text-sky-400 font-bold bg-sky-950/80 border border-sky-800/60 px-1.5 py-0.2 rounded text-[10px]">
+                            {guard.badgeNumber}
+                          </span>
+                          <span className="text-slate-500">•</span>
+                          <span className="truncate max-w-[120px]">{loc?.name || 'Central Facility'}</span>
+                        </div>
                       </div>
                     </div>
-                    {guard.fixedPostId ? (
-                      <span className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 text-[10px] font-bold flex items-center gap-1">
-                        <Lock className="w-2.5 h-2.5" /> Fixed
+
+                    {/* Status Pill */}
+                    {isAbsent ? (
+                      <span className="px-2.5 py-1 rounded-full bg-rose-950 text-rose-300 border border-rose-700 text-[10px] font-black shrink-0 flex items-center gap-1 shadow-sm">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-ping" />
+                        Absent
+                      </span>
+                    ) : isSuspended ? (
+                      <span className="px-2.5 py-1 rounded-full bg-amber-950 text-amber-300 border border-amber-700 text-[10px] font-black shrink-0 flex items-center gap-1 shadow-sm">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                        Suspended
+                      </span>
+                    ) : isOnLeave ? (
+                      <span className="px-2.5 py-1 rounded-full bg-amber-950 text-amber-300 border border-amber-700 text-[10px] font-black shrink-0">
+                        🏖️ On Leave
+                      </span>
+                    ) : isOffDay ? (
+                      <span className="px-2.5 py-1 rounded-full bg-sky-950 text-sky-300 border border-sky-700 text-[10px] font-black shrink-0">
+                        🏖️ Off-Day
                       </span>
                     ) : (
-                      <span className="px-2 py-0.5 rounded bg-purple-950 text-purple-400 border border-purple-800 text-[10px] font-bold flex items-center gap-1">
-                        <RotateCw className="w-2.5 h-2.5" /> Rotating
+                      <span className="px-2.5 py-1 rounded-full bg-emerald-950/90 text-emerald-300 border border-emerald-700 text-[10px] font-black shrink-0 flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                        Active
                       </span>
                     )}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 text-xs pt-1 border-t border-slate-850">
-                    <div className="flex items-center gap-1.5 text-slate-300">
-                      <Phone className="w-3.5 h-3.5 text-slate-500" />
-                      <span>{guard.phone}</span>
+                  {/* Disciplinary Notice Banner if present */}
+                  {(isSuspended || isAbsent || guard.disciplinaryNote) && (
+                    <div
+                      onClick={() => setDisciplinaryGuard(guard)}
+                      className={`p-2 rounded-xl text-[10px] border mt-2 flex items-center justify-between gap-2 cursor-pointer transition ${
+                        isSuspended
+                          ? 'bg-amber-950/50 border-amber-700/80 text-amber-200 hover:bg-amber-900/40'
+                          : 'bg-rose-950/50 border-rose-800/80 text-rose-200 hover:bg-rose-900/40'
+                      }`}
+                    >
+                      <span className="truncate">
+                        ⚖️ {guard.disciplinaryNote || (isSuspended ? `Suspended until ${guard.suspensionEndDate || 'notice'}` : 'Marked Absent')}
+                      </span>
+                      <span className="underline font-bold shrink-0">Details</span>
                     </div>
-                    <div className="flex items-center gap-1.5 text-slate-300">
-                      <Droplet className="w-3.5 h-3.5 text-rose-400" />
-                      <span>Blood: {guard.bloodGroup}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-slate-300 col-span-2">
-                      <CreditCard className="w-3.5 h-3.5 text-amber-400" />
-                      <span>NID: {guard.nid}</span>
-                    </div>
-                  </div>
+                  )}
 
-                  <div className="pt-2 border-t border-slate-850 flex items-center justify-between text-xs">
-                    <div className="text-[11px] text-slate-400">
-                      Streak: <strong className="text-white">{guard.dutyStreak}/6 Days</strong>
+                  {/* Info Chips Grid */}
+                  <div className="grid grid-cols-2 gap-2 text-xs pt-3 mt-3 border-t border-slate-800/80">
+                    <div className="flex items-center gap-2 bg-slate-950/60 border border-slate-800/60 rounded-xl p-2">
+                      <Phone className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                      <span className="text-[11px] text-slate-300 font-mono truncate">{guard.phone}</span>
                     </div>
-                    {fixedPost && (
-                      <div className="text-[11px] text-emerald-400 font-semibold truncate max-w-[140px]">
-                        📍 {fixedPost.name}
+
+                    <div className="flex items-center gap-2 bg-slate-950/60 border border-slate-800/60 rounded-xl p-2">
+                      <Droplet className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                      <span className="text-[11px] text-slate-300 font-bold">Blood: {guard.bloodGroup || 'O+'}</span>
+                    </div>
+
+                    {guard.nid && (
+                      <div className="flex items-center gap-2 bg-slate-950/60 border border-slate-800/60 rounded-xl p-2 col-span-2">
+                        <CreditCard className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span className="text-[11px] text-slate-400 font-mono">
+                          NID: <strong className="text-slate-200">{guard.nid}</strong>
+                        </span>
                       </div>
                     )}
                   </div>
+
+                  {/* Post & Rotation Streak Section */}
+                  <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs">
+                    <div>
+                      <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">6/1 Cycle Streak</div>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <div className="flex gap-1">
+                          {[1, 2, 3, 4, 5, 6].map((dayNum) => (
+                            <span
+                              key={dayNum}
+                              className={`w-2 h-2 rounded-full ${
+                                dayNum <= (guard.dutyStreak || 1)
+                                  ? isOffDay
+                                    ? 'bg-amber-400 shadow-sm shadow-amber-400/50'
+                                    : 'bg-sky-400 shadow-sm shadow-sky-400/50'
+                                  : 'bg-slate-800'
+                              }`}
+                            />
+                          ))}
+                        </div>
+                        <span className="text-[11px] font-extrabold text-slate-300 font-mono ml-1">
+                          {guard.dutyStreak}/6
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Post Assignment Pill */}
+                    <div className="text-right">
+                      {fixedPost ? (
+                        <span className="px-2 py-1 rounded-lg bg-emerald-950/80 border border-emerald-800/80 text-emerald-300 text-[10px] font-bold inline-flex items-center gap-1">
+                          <Lock className="w-2.5 h-2.5 text-emerald-400" />
+                          <span className="truncate max-w-[110px]">{fixedPost.name}</span>
+                        </span>
+                      ) : (
+                        <span className="px-2 py-1 rounded-lg bg-purple-950/80 border border-purple-800/80 text-purple-300 text-[10px] font-bold inline-flex items-center gap-1">
+                          <RotateCw className="w-2.5 h-2.5 text-purple-400" /> Rotating Pool
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Sleek Action Bar for Management Roles */}
+                  {currentRole !== 'SECURITY_GUARD' && (
+                    <div className="pt-3 border-t border-slate-800/80 flex items-center gap-2">
+                      {isAbsent || isSuspended ? (
+                        <>
+                          <button
+                            onClick={() => applyDisciplinaryAction({ guardId: guard.id, actionType: 'ACTIVE', reason: 'Reinstated' })}
+                            className="flex-1 py-2 px-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-500/20 transition cursor-pointer"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Make Active</span>
+                          </button>
+                          <button
+                            onClick={() => setDisciplinaryGuard(guard)}
+                            className="py-2 px-3 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-white font-bold text-xs flex items-center justify-center gap-1 transition cursor-pointer"
+                          >
+                            <span>⚖️ Action</span>
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => setDisciplinaryGuard(guard)}
+                          className="flex-1 py-2 px-3 rounded-xl bg-slate-950/90 hover:bg-rose-950/40 border border-slate-800 hover:border-rose-700/60 text-slate-300 hover:text-rose-300 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                        >
+                          <span>⚖️ Discipline / Absent / Suspend</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
 
           {/* Directory Pagination Footer */}
-          <div className="p-3.5 bg-slate-900 border border-slate-800 rounded-2xl flex items-center justify-between text-xs text-slate-400 flex-wrap gap-3">
+          <div className="p-4 bg-slate-900 border border-slate-800 rounded-3xl flex items-center justify-between text-xs text-slate-400 flex-wrap gap-3 shadow-xl">
             <div>
               Showing <strong className="text-white">{(currentPage - 1) * pageSize + 1}</strong> -{' '}
               <strong className="text-white">
@@ -768,6 +1019,15 @@ export const GuardMatrixAndDirectoryPage: React.FC = () => {
 
       {/* Bulk Import Modal */}
       <BulkImportModal isOpen={isBulkImportOpen} onClose={() => setIsBulkImportOpen(false)} />
+
+      {/* Comprehensive Disciplinary, Multi-Day Absence & Suspension Modal */}
+      <DisciplinaryModal
+        isOpen={!!disciplinaryGuard}
+        guard={disciplinaryGuard}
+        currentRole={currentRole}
+        onClose={() => setDisciplinaryGuard(null)}
+        onApplyAction={applyDisciplinaryAction}
+      />
     </div>
   );
 };

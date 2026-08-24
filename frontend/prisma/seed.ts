@@ -101,10 +101,21 @@ async function main() {
   const allPosts = [...loc1.posts, ...loc2.posts, ...loc3.posts, ...loc4.posts, ...loc5.posts];
   console.log(`✅ Seeded 5 Locations with ${allPosts.length} Posts.`);
 
-  // 2. Fast Batch Create 200 Security Guards
-  const firstNames = ['Md.', 'Mohammad', 'Abdul', 'Kazi', 'Sheikh', 'Syed', 'Golam', 'Ali', 'Abu', 'Enamul'];
-  const middleNames = ['Rafiqul', 'Kamal', 'Delwar', 'Shofiqul', 'Nazrul', 'Jahangir', 'Mominul', 'Tariqul', 'Anisur', 'Kawsar', 'Farhad', 'Monir', 'Shahidul', 'Zakir', 'Saiful', 'Jubayer', 'Mahfuz', 'Rashed', 'Alamin', 'Habib'];
-  const lastNames = ['Islam', 'Hossain', 'Rahman', 'Khan', 'Miah', 'Ahmed', 'Chowdhury', 'Sarker', 'Bhuiyan', 'Haque', 'Sikder', 'Patwary', 'Dewan', 'Gazi'];
+  // 2. Fast Batch Create 200 Security Guards with 100% Unique Realistic Names
+  const firstNames = [
+    'Md.', 'Mohammad', 'Abdul', 'Kazi', 'Sheikh', 'Syed', 'Golam', 'Ali', 'Abu', 'Enamul',
+    'Tariq', 'Nazmul', 'Saifur', 'Mustafa', 'Kamrul', 'Faruk', 'Habib', 'Arif', 'Zahid', 'Shah'
+  ];
+  const middleNames = [
+    'Rafiqul', 'Kamal', 'Delwar', 'Shofiqul', 'Nazrul', 'Jahangir', 'Mominul', 'Tariqul', 'Anisur', 'Kawsar',
+    'Farhad', 'Monir', 'Shahidul', 'Zakir', 'Saiful', 'Jubayer', 'Mahfuz', 'Rashed', 'Alamin', 'Habib',
+    'Selim', 'Belal', 'Sultan', 'Harun', 'Nasir', 'Ashraf', 'Masud', 'Bashir', 'Ripon', 'Babul'
+  ];
+  const lastNames = [
+    'Islam', 'Hossain', 'Rahman', 'Khan', 'Miah', 'Ahmed', 'Chowdhury', 'Sarker', 'Bhuiyan', 'Haque',
+    'Sikder', 'Patwary', 'Dewan', 'Gazi', 'Majumder', 'Talukder', 'Akand', 'Howlader', 'Munshi', 'Molla',
+    'Pramanik', 'Barua', 'Khandaker', 'Prodhan', 'Bari'
+  ];
 
   const fixedPostMap = [
     { maxIndex: 16, post: loc1.posts[0] },
@@ -122,8 +133,8 @@ async function main() {
   const guardsData = [];
   for (let i = 0; i < 200; i++) {
     const fn = firstNames[i % firstNames.length];
-    const mn = middleNames[(i * 3) % middleNames.length];
-    const ln = lastNames[(i * 7) % lastNames.length];
+    const mn = middleNames[(i * 7) % middleNames.length];
+    const ln = lastNames[(i * 11) % lastNames.length];
     let status: GuardStatus = GuardStatus.ACTIVE;
     if (i >= 190 && i < 195) status = GuardStatus.ON_LEAVE;
     else if (i >= 195 && i < 198) status = GuardStatus.ABSENT;
@@ -140,7 +151,7 @@ async function main() {
       name: `${fn} ${mn} ${ln}`,
       phone: `+880 17${String(10000000 + i * 837).substring(0, 8)}`,
       nid: `199${(800000000 + i * 917).toString()}`,
-      address: i < 140 ? 'Gazipur' : (i < 160 ? 'Tejgaon' : 'Gulshan'),
+      address: i < 140 ? 'Gazipur, Dhaka' : (i < 160 ? 'Tejgaon, Dhaka' : 'Uttara, Dhaka'),
       joinDate: new Date('2023-03-15'),
       status,
       fixedPostId,
