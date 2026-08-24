@@ -29,7 +29,7 @@ export const MasterRosterBoard: React.FC = () => {
     assignments,
     currentDate,
     setCurrentDate,
-    assignGuard,
+    assignGuardToPost,
     removeAssignment,
     refreshData,
     showToast,
@@ -791,10 +791,10 @@ export const MasterRosterBoard: React.FC = () => {
                     <button
                       disabled={isAlreadyAssigned}
                       onClick={async () => {
-                        await assignGuard(
+                        await assignGuardToPost(
+                          guard.id,
                           activeSlotModal.locationId,
                           activeSlotModal.postId,
-                          guard.id,
                           activeSlotModal.shift
                         );
                         setActiveSlotModal(null);
