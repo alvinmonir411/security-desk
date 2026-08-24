@@ -977,6 +977,24 @@ export const MasterRosterBoard: React.FC = () => {
               </div>
             </div>
 
+            <div className="flex justify-end gap-3 pt-4 border-t border-slate-300">
+              <button
+                onClick={() => setIsPrintModalOpen(false)}
+                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs rounded-xl"
+              >
+                Close Preview
+              </button>
+              <button
+                onClick={() => window.print()}
+                className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl flex items-center gap-2 shadow-lg"
+              >
+                <Printer className="w-4 h-4" /> Print / Save as PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Off-Day & Leave Personnel List Modal */}
       {isOffDayModalOpen && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
