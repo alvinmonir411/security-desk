@@ -160,7 +160,16 @@ export const MasterRosterBoard: React.FC = () => {
     }
   };
 
-  // Filter posts based on search query or highlighted guard
+  // Active Filter Mode from KPI Pills: 'ALL' | 'POSTS' | 'ON_DUTY' | 'OFF_DUTY'
+  const [pillFilter, setPillFilter] = useState<'ALL' | 'POSTS' | 'ON_DUTY' | 'OFF_DUTY'>('ALL');
+  const [isOffDayModalOpen, setIsOffDayModalOpen] = useState(false);
+
+  // Calculate off-duty / on-leave guards today
+  const assignedGuardIdsSet = new Set(assignments.map((a) => a.guardId));
+  const offDutyGuardsList = guards.filter((g) => !assignedGuardIdsSet.has(g.id));
+  const onDutyGuardsList = guards.filter((g) => assignedGuardIdsSet.has(g.id));
+
+  // Filter posts based on search query or active pill filter
   const allPostsList: { post: any; location: any }[] = [];
   locations.forEach((loc) => {
     loc.posts.forEach((p) => {
@@ -169,11 +178,17 @@ export const MasterRosterBoard: React.FC = () => {
   });
 
   const filteredPosts = allPostsList.filter(({ post, location }) => {
+    const postAsgs = assignments.filter((a) => a.postId === post.id);
+
+    if (pillFilter === 'ON_DUTY' && postAsgs.length === 0) return false;
+    if (pillFilter === 'POSTS') {
+      // Keep all posts visible
+    }
+
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
     if (post.name.toLowerCase().includes(q) || location.name.toLowerCase().includes(q)) return true;
 
-    const postAsgs = assignments.filter((a) => a.postId === post.id);
     return postAsgs.some((a) => {
       const g = guards.find((guard) => guard.id === a.guardId);
       return g?.name.toLowerCase().includes(q) || g?.badgeNumber?.toLowerCase().includes(q);
@@ -239,29 +254,64 @@ export const MasterRosterBoard: React.FC = () => {
           </div>
         </div>
 
-        {/* Live Operational Stats Pills */}
+        {/* Live Operational Stats Pills (Interactive 1-Click Filters) */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 border-t border-slate-800/80 text-xs">
-          <div className="bg-slate-950 p-3 rounded-xl border border-slate-850 flex items-center justify-between">
-            <span className="text-slate-400 font-semibold">Total Workforce:</span>
-            <span className="text-sm font-black text-white">{guards.length} Guards</span>
-          </div>
-
-          <div className="bg-slate-950 p-3 rounded-xl border border-slate-850 flex items-center justify-between">
-            <span className="text-slate-400 font-semibold">Duty Posts:</span>
-            <span className="text-sm font-black text-sky-400">{allPostsList.length} Active Posts</span>
-          </div>
-
-          <div className="bg-slate-950 p-3 rounded-xl border border-slate-850 flex items-center justify-between">
-            <span className="text-slate-400 font-semibold">On Duty Today:</span>
-            <span className="text-sm font-black text-emerald-400">{assignments.length} Assigned</span>
-          </div>
-
-          <div className="bg-slate-950 p-3 rounded-xl border border-slate-850 flex items-center justify-between">
-            <span className="text-slate-400 font-semibold">Off-Day / Leave:</span>
-            <span className="text-sm font-black text-amber-400">
-              {Math.max(0, guards.length - assignments.length)} Rest / Leave
+          {/* Pill 1: Total Workforce */}
+          <button
+            onClick={() => setPillFilter('ALL')}
+            className={`p-3 rounded-xl border flex items-center justify-between transition cursor-pointer text-left ${
+              pillFilter === 'ALL'
+                ? 'bg-slate-900 border-sky-500 shadow-md ring-1 ring-sky-500'
+                : 'bg-slate-950 border-slate-850 hover:border-slate-700'
+            }`}
+          >
+            <span className="text-slate-400 font-semibold flex items-center gap-1.5">
+              <span>👥 Total Workforce:</span>
             </span>
-          </div>
+            <span className="text-sm font-black text-white">{guards.length} Guards</span>
+          </button>
+
+          {/* Pill 2: Duty Posts */}
+          <button
+            onClick={() => setPillFilter('POSTS')}
+            className={`p-3 rounded-xl border flex items-center justify-between transition cursor-pointer text-left ${
+              pillFilter === 'POSTS'
+                ? 'bg-slate-900 border-sky-500 shadow-md ring-1 ring-sky-500'
+                : 'bg-slate-950 border-slate-850 hover:border-slate-700'
+            }`}
+          >
+            <span className="text-slate-400 font-semibold">📍 Duty Posts:</span>
+            <span className="text-sm font-black text-sky-400">{allPostsList.length} Active Posts</span>
+          </button>
+
+          {/* Pill 3: On Duty Today */}
+          <button
+            onClick={() => setPillFilter('ON_DUTY')}
+            className={`p-3 rounded-xl border flex items-center justify-between transition cursor-pointer text-left ${
+              pillFilter === 'ON_DUTY'
+                ? 'bg-emerald-950/60 border-emerald-500 shadow-md ring-1 ring-emerald-500'
+                : 'bg-slate-950 border-slate-850 hover:border-slate-700'
+            }`}
+          >
+            <span className="text-slate-400 font-semibold">⚡ On Duty Today:</span>
+            <span className="text-sm font-black text-emerald-400">{assignments.length} Assigned</span>
+          </button>
+
+          {/* Pill 4: Off-Day / Leave */}
+          <button
+            onClick={() => setIsOffDayModalOpen(true)}
+            className={`p-3 rounded-xl border flex items-center justify-between transition cursor-pointer text-left hover:border-amber-500/80 ${
+              isOffDayModalOpen
+                ? 'bg-amber-950/60 border-amber-500 shadow-md ring-1 ring-amber-500'
+                : 'bg-slate-950 border-slate-850'
+            }`}
+          >
+            <span className="text-slate-400 font-semibold">🏖️ Off-Day / Leave:</span>
+            <span className="text-sm font-black text-amber-400 flex items-center gap-1">
+              <span>{offDutyGuardsList.length} Rest / Leave</span>
+              <span className="text-[10px] text-amber-300 underline font-normal ml-1">View ➔</span>
+            </span>
+          </button>
         </div>
       </div>
 
@@ -927,18 +977,69 @@ export const MasterRosterBoard: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex justify-end gap-3 pt-4 border-t border-slate-300">
+      {/* Off-Day & Leave Personnel List Modal */}
+      {isOffDayModalOpen && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl text-white text-xs">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <span className="text-xl">🏖️</span>
+                <div>
+                  <h3 className="text-sm font-bold text-white">
+                    Off-Duty Personnel ({offDutyGuardsList.length} Guards)
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Guards currently on scheduled 6/1 weekly rest day or approved leave
+                  </p>
+                </div>
+              </div>
               <button
-                onClick={() => setIsPrintModalOpen(false)}
-                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs rounded-xl"
+                onClick={() => setIsOffDayModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-white"
               >
-                Close Preview
+                <X className="w-5 h-5" />
               </button>
+            </div>
+
+            <div className="max-h-[60vh] overflow-y-auto space-y-2 pr-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {offDutyGuardsList.map((guard) => {
+                  const loc = locations.find((l) => l.id === guard.defaultLocationId);
+                  const fixedPost = loc?.posts.find((p) => p.id === guard.fixedPostId);
+
+                  return (
+                    <div
+                      key={guard.id}
+                      className="bg-slate-950 border border-slate-850 rounded-xl p-3 space-y-1.5 hover:border-slate-700 transition shadow"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-white text-xs">{guard.name}</span>
+                        <span className="px-2 py-0.5 rounded bg-amber-950/80 text-amber-300 border border-amber-800/80 text-[10px] font-bold">
+                          🏖️ Weekly OFF
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-slate-400 flex items-center gap-2">
+                        <span className="font-mono text-sky-400">{guard.badgeNumber}</span>
+                        <span>•</span>
+                        <span>{guard.phone}</span>
+                      </div>
+                      <div className="text-[10px] text-slate-500 flex items-center justify-between pt-1 border-t border-slate-900">
+                        <span>Base: {loc?.name || 'Central'}</span>
+                        {fixedPost && <span className="text-emerald-400">🔒 {fixedPost.name}</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-3 border-t border-slate-800 text-slate-400 text-[11px]">
+              <span>Cycle: 6 Days Duty completed ➔ 1 Day Rest</span>
               <button
-                onClick={() => window.print()}
-                className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl flex items-center gap-2 shadow-lg"
+                onClick={() => setIsOffDayModalOpen(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl"
               >
-                <Printer className="w-4 h-4" /> Print / Save as PDF
+                Close
               </button>
             </div>
           </div>
